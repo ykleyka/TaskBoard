@@ -1,0 +1,36 @@
+@host = http://localhost:8080
+
+### Получить все задачи
+GET {{host}}/api/tasks
+
+### Создать задачу: короткая
+POST {{host}}/api/tasks
+Content-Type: application/json
+
+{
+  "title": "Сделать отчёт по лабе",
+  "description": "Отчёт должен содержать титульник, структуру проекта, код и т. д.",
+  "assignee": "Валик"
+}
+
+###
+DELETE {{host}}//api/tasks/4
+
+### Patch
+PATCH {{host}}/api/tasks/1
+Content-Type: application/json
+
+{
+  "status": "IN_PROGRESS"
+}
+
+### Обновить задачу
+PUT {{host}}/api/tasks/1
+Content-Type: application/json
+
+{
+  "title": "Создать SpringBoot проект",
+  "description": "Создать проект в Intellij IDEA, установить зависимости для работы с вебом",
+  "assignee": "Кирилл",
+  "status": "COMPLETED"
+}

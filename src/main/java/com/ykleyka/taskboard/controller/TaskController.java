@@ -1,0 +1,71 @@
+package com.ykleyka.taskboard.controller;
+
+import com.ykleyka.taskboard.dto.TaskPatchRequest;
+import com.ykleyka.taskboard.dto.TaskPutRequest;
+import com.ykleyka.taskboard.dto.TaskRequest;
+import com.ykleyka.taskboard.dto.TaskResponse;
+import com.ykleyka.taskboard.model.Status;
+import com.ykleyka.taskboard.service.TaskService;
+import jakarta.validation.Valid;
+import java.util.List;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+/** REST controller for task operations. */
+@RestController
+@RequestMapping("api/tasks")
+public class TaskController {
+  private final TaskService service;
+
+  /** Creates controller instance. */
+  public TaskController(TaskService service) {
+    this.service = service;
+  }
+
+  /** Returns tasks with optional filtering by status and assignee. */
+  @GetMapping
+  public List<TaskResponse> getTasks(
+      @RequestParam(required = false) Status status,
+      @RequestParam(required = false) String assignee) {
+    return service.getTasks(status, assignee);
+  }
+
+  /** Returns a task by id. */
+  @GetMapping("/{id}")
+  public TaskResponse getTaskById(@PathVariable Long id) {
+    return service.getTaskById(id);
+  }
+
+  /** Creates a new task. */
+  @PostMapping
+  public TaskResponse createTask(@Valid @RequestBody TaskRequest request) {
+    return service.createTask(request);
+  }
+
+  /** Replaces an existing task. */
+  @PutMapping("/{id}")
+  public TaskResponse updateTask(
+      @PathVariable Long id, @Valid @RequestBody TaskPutRequest request) {
+    return service.updateTask(id, request);
+  }
+
+  /** Updates selected fields of a task. */
+  @PatchMapping("/{id}")
+  public TaskResponse patchTask(@PathVariable Long id, @RequestBody TaskPatchRequest request) {
+    return service.patchTask(id, request);
+  }
+
+  /** Deletes a task by id. */
+  @DeleteMapping("/{id}")
+  public TaskResponse deleteTask(@PathVariable Long id) {
+    return service.deleteTask(id);
+  }
+}
