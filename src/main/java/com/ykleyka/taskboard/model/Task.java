@@ -2,13 +2,13 @@ package com.ykleyka.taskboard.model;
 
 import java.time.LocalDateTime;
 
-/** Task domain entity. */
 public class Task {
   private Long id;
   private String title;
   private String description;
   private Status status;
   private String assignee;
+  private String creator;
   private LocalDateTime createdAt;
   private LocalDateTime updatedAt;
 
@@ -50,6 +50,14 @@ public class Task {
 
   public void setAssignee(String assignee) {
     this.assignee = assignee;
+  }
+
+  public String getCreator() {
+    return creator;
+  }
+
+  public void setCreator(String creator) {
+    this.creator = creator;
   }
 
   public LocalDateTime getCreatedAt() {

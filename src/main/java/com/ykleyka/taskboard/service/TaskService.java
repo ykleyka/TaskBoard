@@ -1,4 +1,4 @@
-﻿package com.ykleyka.taskboard.service;
+package com.ykleyka.taskboard.service;
 
 import com.ykleyka.taskboard.dto.TaskPatchRequest;
 import com.ykleyka.taskboard.dto.TaskPutRequest;
@@ -14,20 +14,17 @@ import java.util.ArrayList;
 import java.util.List;
 import org.springframework.stereotype.Service;
 
-/** Service layer for task operations. */
 @Service
 public class TaskService {
   private final TaskMapper mapper;
   private final TaskRepository repository;
 
-  /** Creates service instance. */
   public TaskService(TaskMapper mapper, TaskRepository repository) {
     this.mapper = mapper;
     this.repository = repository;
     seedInitialTasks();
   }
 
-  /** Returns tasks with optional filtering by status and assignee. */
   public List<TaskResponse> getTasks(Status status, String assignee) {
     List<TaskResponse> result = new ArrayList<>();
 
@@ -44,7 +41,6 @@ public class TaskService {
     return result;
   }
 
-  /** Returns task by id. */
   public TaskResponse getTaskById(Long id) {
     return mapper.toResponse(findTask(id));
   }
@@ -53,7 +49,6 @@ public class TaskService {
     return repository.findById(id).orElseThrow(() -> new TaskNotFoundException(id));
   }
 
-  /** Creates a new task. */
   public TaskResponse createTask(TaskRequest request) {
     Task task = mapper.toEntity(request);
     task.setUpdatedAt(LocalDateTime.now());
@@ -66,20 +61,22 @@ public class TaskService {
         new TaskRequest(
             "Create project",
             "Create Java Spring Boot project and install dependencies",
+            "Valik",
             "Valik"));
     createTask(
         new TaskRequest(
             "Add Task entity",
             "Add Task entity and implement controller and service",
+            "Valik",
             "Valik"));
   }
 
-  /** Replaces full task payload by id. */
   public TaskResponse updateTask(Long id, TaskPutRequest request) {
     Task oldTask = findTask(id);
     Task newTask = mapper.toEntity(request);
     newTask.setId(oldTask.getId());
     newTask.setCreatedAt(oldTask.getCreatedAt());
+    newTask.setCreator(oldTask.getCreator());
 
     if (!repository.replace(id, newTask)) {
       throw new TaskNotFoundException(id);
@@ -88,7 +85,6 @@ public class TaskService {
     return mapper.toResponse(newTask);
   }
 
-  /** Partially updates task fields by id. */
   public TaskResponse patchTask(Long id, TaskPatchRequest request) {
     Task task = findTask(id);
 
@@ -109,7 +105,6 @@ public class TaskService {
     return mapper.toResponse(task);
   }
 
-  /** Deletes task by id. */
   public TaskResponse deleteTask(Long id) {
     Task task = findTask(id);
 

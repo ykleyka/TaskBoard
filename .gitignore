@@ -1,8 +1,24 @@
 HELP.md
 target/
-.mvn/wrapper/maven-wrapper.jar
+!.mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
+.mvn/
+.mvn
+src/main/resources/application.yaml
+src/test/java/splitmindq/caloriecounter/CalorieCounterApplicationTests.java
+.gitattributes
+mvnw.cmd
+mvnw
+google_checks.xml
+checkstyle.xml
+docker-compose.yml
+db
+.env
+utils/EnvConfig.java
+stdout
+*.http
+checkstyle-debug.log
 
 ### STS ###
 .apt_generated
@@ -18,7 +34,6 @@ target/
 *.iws
 *.iml
 *.ipr
-*.http
 
 ### NetBeans ###
 /nbproject/private/

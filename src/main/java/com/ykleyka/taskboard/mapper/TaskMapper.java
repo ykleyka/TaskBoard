@@ -8,16 +8,15 @@ import com.ykleyka.taskboard.model.Task;
 import java.time.LocalDateTime;
 import org.springframework.stereotype.Component;
 
-/** Maps between task domain objects and DTOs. */
 @Component
 public class TaskMapper {
 
-  /** Maps create request to a new task entity. */
   public Task toEntity(TaskRequest request) {
     Task task = new Task();
     task.setTitle(request.title());
     task.setDescription(request.description());
     task.setAssignee(request.assignee());
+    task.setCreator(request.creator());
     task.setStatus(Status.TODO);
     LocalDateTime now = LocalDateTime.now();
     task.setCreatedAt(now);
@@ -25,7 +24,6 @@ public class TaskMapper {
     return task;
   }
 
-  /** Maps put request to a task entity. */
   public Task toEntity(TaskPutRequest request) {
     Task task = new Task();
     task.setTitle(request.title());
@@ -38,7 +36,6 @@ public class TaskMapper {
     return task;
   }
 
-  /** Maps task entity to response DTO. */
   public TaskResponse toResponse(Task task) {
     return new TaskResponse(
         task.getId(),
@@ -46,6 +43,7 @@ public class TaskMapper {
         task.getDescription(),
         task.getStatus(),
         task.getAssignee(),
+        task.getCreator(),
         task.getCreatedAt(),
         task.getUpdatedAt());
   }
