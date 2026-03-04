@@ -22,42 +22,42 @@ import org.springframework.web.bind.annotation.RestController;
 @RestController
 @RequestMapping("api/tasks")
 public class TaskController {
-  private final TaskService service;
+    private final TaskService service;
 
-  public TaskController(TaskService service) {
-    this.service = service;
-  }
+    public TaskController(TaskService service) {
+        this.service = service;
+    }
 
-  @GetMapping
-  public List<TaskResponse> getTasks(
-      @RequestParam(required = false) Status status,
-      @RequestParam(required = false) String assignee) {
-    return service.getTasks(status, assignee);
-  }
+    @GetMapping
+    public List<TaskResponse> getTasks(
+            @RequestParam(required = false) Status status,
+            @RequestParam(required = false) String assignee) {
+        return service.getTasks(status, assignee);
+    }
 
-  @GetMapping("/{id}")
-  public TaskResponse getTaskById(@PathVariable Long id) {
-    return service.getTaskById(id);
-  }
+    @GetMapping("/{id}")
+    public TaskResponse getTaskById(@PathVariable Long id) {
+        return service.getTaskById(id);
+    }
 
-  @PostMapping
-  public TaskResponse createTask(@Valid @RequestBody TaskRequest request) {
-    return service.createTask(request);
-  }
+    @PostMapping
+    public TaskResponse createTask(@Valid @RequestBody TaskRequest request) {
+        return service.createTask(request);
+    }
 
-  @PutMapping("/{id}")
-  public TaskResponse updateTask(
-      @PathVariable Long id, @Valid @RequestBody TaskPutRequest request) {
-    return service.updateTask(id, request);
-  }
+    @PutMapping("/{id}")
+    public TaskResponse updateTask(
+            @PathVariable Long id, @Valid @RequestBody TaskPutRequest request) {
+        return service.updateTask(id, request);
+    }
 
-  @PatchMapping("/{id}")
-  public TaskResponse patchTask(@PathVariable Long id, @RequestBody TaskPatchRequest request) {
-    return service.patchTask(id, request);
-  }
+    @PatchMapping("/{id}")
+    public TaskResponse patchTask(@PathVariable Long id, @RequestBody TaskPatchRequest request) {
+        return service.patchTask(id, request);
+    }
 
-  @DeleteMapping("/{id}")
-  public TaskResponse deleteTask(@PathVariable Long id) {
-    return service.deleteTask(id);
-  }
+    @DeleteMapping("/{id}")
+    public TaskResponse deleteTask(@PathVariable Long id) {
+        return service.deleteTask(id);
+    }
 }

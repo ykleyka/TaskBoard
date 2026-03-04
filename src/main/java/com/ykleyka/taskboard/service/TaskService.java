@@ -16,102 +16,103 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class TaskService {
-  private final TaskMapper mapper;
-  private final TaskRepository repository;
+    private final TaskMapper mapper;
+    private final TaskRepository repository;
+    private static final String EXAMPLE_USER = "Valik";
 
-  public TaskService(TaskMapper mapper, TaskRepository repository) {
-    this.mapper = mapper;
-    this.repository = repository;
-    seedInitialTasks();
-  }
-
-  public List<TaskResponse> getTasks(Status status, String assignee) {
-    List<TaskResponse> result = new ArrayList<>();
-
-    for (Task task : repository.findAll()) {
-      boolean statusMatches = status == null || task.getStatus() == status;
-      boolean assigneeMatches =
-          assignee == null || assignee.isBlank() || assignee.equalsIgnoreCase(task.getAssignee());
-
-      if (statusMatches && assigneeMatches) {
-        result.add(mapper.toResponse(task));
-      }
+    public TaskService(TaskMapper mapper, TaskRepository repository) {
+        this.mapper = mapper;
+        this.repository = repository;
+        seedInitialTasks();
     }
 
-    return result;
-  }
+    public List<TaskResponse> getTasks(Status status, String assignee) {
+        List<TaskResponse> result = new ArrayList<>();
 
-  public TaskResponse getTaskById(Long id) {
-    return mapper.toResponse(findTask(id));
-  }
+        for (Task task : repository.findAll()) {
+            boolean statusMatches = status == null || task.getStatus() == status;
+            boolean assigneeMatches =
+                    assignee == null || assignee.isBlank() || assignee.equalsIgnoreCase(task.getAssignee());
 
-  private Task findTask(Long id) {
-    return repository.findById(id).orElseThrow(() -> new TaskNotFoundException(id));
-  }
+            if (statusMatches && assigneeMatches) {
+                result.add(mapper.toResponse(task));
+            }
+        }
 
-  public TaskResponse createTask(TaskRequest request) {
-    Task task = mapper.toEntity(request);
-    task.setUpdatedAt(LocalDateTime.now());
-    repository.save(task);
-    return mapper.toResponse(task);
-  }
-
-  private void seedInitialTasks() {
-    createTask(
-        new TaskRequest(
-            "Create project",
-            "Create Java Spring Boot project and install dependencies",
-            "Valik",
-            "Valik"));
-    createTask(
-        new TaskRequest(
-            "Add Task entity",
-            "Add Task entity and implement controller and service",
-            "Valik",
-            "Valik"));
-  }
-
-  public TaskResponse updateTask(Long id, TaskPutRequest request) {
-    Task oldTask = findTask(id);
-    Task newTask = mapper.toEntity(request);
-    newTask.setId(oldTask.getId());
-    newTask.setCreatedAt(oldTask.getCreatedAt());
-    newTask.setCreator(oldTask.getCreator());
-
-    if (!repository.replace(id, newTask)) {
-      throw new TaskNotFoundException(id);
+        return result;
     }
 
-    return mapper.toResponse(newTask);
-  }
-
-  public TaskResponse patchTask(Long id, TaskPatchRequest request) {
-    Task task = findTask(id);
-
-    if (request.title() != null) {
-      task.setTitle(request.title());
-    }
-    if (request.description() != null) {
-      task.setDescription(request.description());
-    }
-    if (request.status() != null) {
-      task.setStatus(request.status());
-    }
-    if (request.assignee() != null) {
-      task.setAssignee(request.assignee());
+    public TaskResponse getTaskById(Long id) {
+        return mapper.toResponse(findTask(id));
     }
 
-    task.setUpdatedAt(LocalDateTime.now());
-    return mapper.toResponse(task);
-  }
-
-  public TaskResponse deleteTask(Long id) {
-    Task task = findTask(id);
-
-    if (!repository.deleteById(id)) {
-      throw new TaskNotFoundException(id);
+    private Task findTask(Long id) {
+        return repository.findById(id).orElseThrow(() -> new TaskNotFoundException(id));
     }
 
-    return mapper.toResponse(task);
-  }
+    public TaskResponse createTask(TaskRequest request) {
+        Task task = mapper.toEntity(request);
+        task.setUpdatedAt(LocalDateTime.now());
+        repository.save(task);
+        return mapper.toResponse(task);
+    }
+
+    private void seedInitialTasks() {
+        createTask(
+                new TaskRequest(
+                        "Create project",
+                        "Create Java Spring Boot project and install dependencies",
+                        EXAMPLE_USER,
+                        EXAMPLE_USER));
+        createTask(
+                new TaskRequest(
+                        "Add Task entity",
+                        "Add Task entity and implement controller and service",
+                        EXAMPLE_USER,
+                        EXAMPLE_USER));
+    }
+
+    public TaskResponse updateTask(Long id, TaskPutRequest request) {
+        Task oldTask = findTask(id);
+        Task newTask = mapper.toEntity(request);
+        newTask.setId(oldTask.getId());
+        newTask.setCreatedAt(oldTask.getCreatedAt());
+        newTask.setCreator(oldTask.getCreator());
+
+        if (!repository.replace(id, newTask)) {
+            throw new TaskNotFoundException(id);
+        }
+
+        return mapper.toResponse(newTask);
+    }
+
+    public TaskResponse patchTask(Long id, TaskPatchRequest request) {
+        Task task = findTask(id);
+
+        if (request.title() != null) {
+            task.setTitle(request.title());
+        }
+        if (request.description() != null) {
+            task.setDescription(request.description());
+        }
+        if (request.status() != null) {
+            task.setStatus(request.status());
+        }
+        if (request.assignee() != null) {
+            task.setAssignee(request.assignee());
+        }
+
+        task.setUpdatedAt(LocalDateTime.now());
+        return mapper.toResponse(task);
+    }
+
+    public TaskResponse deleteTask(Long id) {
+        Task task = findTask(id);
+
+        if (!repository.deleteById(id)) {
+            throw new TaskNotFoundException(id);
+        }
+
+        return mapper.toResponse(task);
+    }
 }
