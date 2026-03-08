@@ -1,4 +1,4 @@
-package com.ykleyka.taskboard.model;
+package com.ykleyka.taskboard.model.enums;
 
 public enum Status {
   TODO,

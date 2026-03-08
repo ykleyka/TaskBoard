@@ -4,10 +4,11 @@ import com.ykleyka.taskboard.dto.TaskPatchRequest;
 import com.ykleyka.taskboard.dto.TaskPutRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
 import com.ykleyka.taskboard.dto.TaskResponse;
-import com.ykleyka.taskboard.model.Status;
+import com.ykleyka.taskboard.model.enums.Status;
 import com.ykleyka.taskboard.service.TaskService;
 import jakarta.validation.Valid;
 import java.util.List;
+import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -31,8 +32,10 @@ public class TaskController {
     @GetMapping
     public List<TaskResponse> getTasks(
             @RequestParam(required = false) Status status,
-            @RequestParam(required = false) String assignee) {
-        return service.getTasks(status, assignee);
+            @RequestParam(required = false) String assignee,
+            @RequestParam(defaultValue = "id") String sortBy,
+            @RequestParam(defaultValue = "ASC") Sort.Direction sortDir) {
+        return service.getTasks(status, assignee, sortBy, sortDir);
     }
 
     @GetMapping("/{id}")

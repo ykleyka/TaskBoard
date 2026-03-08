@@ -3,9 +3,9 @@ package com.ykleyka.taskboard.mapper;
 import com.ykleyka.taskboard.dto.TaskPutRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
 import com.ykleyka.taskboard.dto.TaskResponse;
-import com.ykleyka.taskboard.model.Status;
+import com.ykleyka.taskboard.model.enums.Status;
 import com.ykleyka.taskboard.model.Task;
-import java.time.LocalDateTime;
+import java.time.Instant;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -18,7 +18,9 @@ public class TaskMapper {
         task.setAssignee(request.assignee());
         task.setCreator(request.creator());
         task.setStatus(Status.TODO);
-        LocalDateTime now = LocalDateTime.now();
+        task.setPriority(request.priority());
+        task.setDueDate(request.dueDate());
+        Instant now = Instant.now();
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         return task;
@@ -30,7 +32,9 @@ public class TaskMapper {
         task.setDescription(request.description());
         task.setAssignee(request.assignee());
         task.setStatus(request.status());
-        LocalDateTime now = LocalDateTime.now();
+        task.setPriority(request.priority());
+        task.setDueDate(request.dueDate());
+        Instant now = Instant.now();
         task.setCreatedAt(now);
         task.setUpdatedAt(now);
         return task;
@@ -42,8 +46,10 @@ public class TaskMapper {
                 task.getTitle(),
                 task.getDescription(),
                 task.getStatus(),
+                task.getPriority(),
                 task.getAssignee(),
                 task.getCreator(),
+                task.getDueDate(),
                 task.getCreatedAt(),
                 task.getUpdatedAt());
     }
