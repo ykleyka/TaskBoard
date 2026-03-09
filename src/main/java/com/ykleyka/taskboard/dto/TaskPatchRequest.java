@@ -7,8 +7,9 @@ import java.time.Instant;
 public record TaskPatchRequest(
     String title,
     String description,
+    Long projectId,
+    Long assigneeId,
     Status status,
-    String assignee,
     Priority priority,
     Instant dueDate
 ) {

@@ -10,8 +10,11 @@ public record TaskResponse(
     String description,
     Status status,
     Priority priority,
-    String assignee,
-    String creator,
+    Long projectId,
+    Long creatorId,
+    String creatorUsername,
+    Long assigneeId,
+    String assigneeUsername,
     Instant dueDate,
     Instant createdAt,
     Instant updatedAt
