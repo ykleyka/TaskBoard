@@ -2,6 +2,7 @@ package com.ykleyka.taskboard.model;
 
 import com.ykleyka.taskboard.model.enums.Priority;
 import com.ykleyka.taskboard.model.enums.Status;
+import jakarta.persistence.CascadeType;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.EnumType;
@@ -66,7 +67,7 @@ public class Task {
     @Column(name = "due_date")
     private Instant dueDate;
 
-    @OneToMany(mappedBy = "task")
+    @OneToMany(mappedBy = "task", cascade = CascadeType.ALL, orphanRemoval = true)
     private Set<Comment> comments = new HashSet<>();
 
     @ManyToMany

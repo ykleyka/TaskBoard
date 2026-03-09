@@ -1,5 +1,6 @@
 package com.ykleyka.taskboard.controller;
 
+import com.ykleyka.taskboard.dto.TaskDetailsResponse;
 import com.ykleyka.taskboard.dto.TaskPatchRequest;
 import com.ykleyka.taskboard.dto.TaskPutRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
@@ -39,7 +40,7 @@ public class TaskController {
     }
 
     @GetMapping("/{id}")
-    public TaskResponse getTaskById(@PathVariable Long id) {
+    public TaskDetailsResponse getTaskById(@PathVariable Long id) {
         return service.getTaskById(id);
     }
 
@@ -55,7 +56,7 @@ public class TaskController {
     }
 
     @PatchMapping("/{id}")
-    public TaskResponse patchTask(@PathVariable Long id, @RequestBody TaskPatchRequest request) {
+    public TaskResponse patchTask(@PathVariable Long id, @Valid @RequestBody TaskPatchRequest request) {
         return service.patchTask(id, request);
     }
 

@@ -2,12 +2,11 @@ package com.ykleyka.taskboard.dto;
 
 import java.time.Instant;
 
-public record UserResponse(
+public record TaskCommentSummaryResponse(
         Long id,
-        String username,
-        String email,
-        String firstName,
-        String lastName,
+        String text,
+        Long authorId,
+        String authorUsername,
         Instant createdAt,
         Instant updatedAt) {
 

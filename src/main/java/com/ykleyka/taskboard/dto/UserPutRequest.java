@@ -9,4 +9,6 @@ public record UserPutRequest(
         @NotBlank @Email String email,
         @JsonAlias("passwordHash") String password,
         @NotBlank String firstName,
-        @NotBlank String lastName) {}
+        @NotBlank String lastName) {
+
+}

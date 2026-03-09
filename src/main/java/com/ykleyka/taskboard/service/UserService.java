@@ -6,11 +6,16 @@ import com.ykleyka.taskboard.model.ProjectMember;
 import com.ykleyka.taskboard.model.Task;
 import com.ykleyka.taskboard.model.User;
 import com.ykleyka.taskboard.model.enums.ProjectRole;
+import com.ykleyka.taskboard.repository.CommentRepository;
 import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
+import java.util.HashSet;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -19,6 +24,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 @Service
 public class UserService {
+    private final CommentRepository commentRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final PasswordEncoder passwordEncoder;
     private final TaskRepository taskRepository;
@@ -28,10 +34,12 @@ public class UserService {
             UserRepository userRepository,
             PasswordEncoder passwordEncoder,
             TaskRepository taskRepository,
+            CommentRepository commentRepository,
             ProjectMemberRepository projectMemberRepository) {
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.taskRepository = taskRepository;
+        this.commentRepository = commentRepository;
         this.projectMemberRepository = projectMemberRepository;
     }
 
@@ -99,12 +107,13 @@ public class UserService {
     public User deleteUser(Long id) {
         User user = findUser(id);
         List<Task> affectedTasks = taskRepository.findAllByCreatorIdOrAssigneeId(id, id);
+        Map<Long, User> replacementOwners = loadReplacementOwnersByProjectId(affectedTasks, id);
         Instant now = Instant.now();
         for (Task task : affectedTasks) {
             boolean changed = false;
 
             if (task.getCreator() != null && task.getCreator().getId().equals(id)) {
-                task.setCreator(resolveProjectOwner(task, id));
+                task.setCreator(replacementOwners.get(task.getProject().getId()));
                 changed = true;
             }
             if (task.getAssignee() != null && task.getAssignee().getId().equals(id)) {
@@ -118,6 +127,7 @@ public class UserService {
         if (!affectedTasks.isEmpty()) {
             taskRepository.saveAll(affectedTasks);
         }
+        commentRepository.deleteAllByAuthorId(id);
         projectMemberRepository.deleteAllByUserId(id);
         userRepository.delete(user);
         return user;
@@ -160,30 +170,48 @@ public class UserService {
         return passwordEncoder.encode(rawPassword);
     }
 
-    private User resolveProjectOwner(Task task, Long deletedUserId) {
-        if (task.getProject() == null) {
+    private Map<Long, User> loadReplacementOwnersByProjectId(List<Task> affectedTasks, Long deletedUserId) {
+        Set<Long> projectIds = new HashSet<>();
+        for (Task task : affectedTasks) {
+            if (task.getCreator() == null || !task.getCreator().getId().equals(deletedUserId)) {
+                continue;
+            }
+            if (task.getProject() == null) {
+                throw new ResponseStatusException(
+                        HttpStatus.CONFLICT,
+                        "Cannot delete user "
+                                + deletedUserId
+                                + " because task "
+                                + task.getId()
+                                + " has no project");
+            }
+            projectIds.add(task.getProject().getId());
+        }
+
+        if (projectIds.isEmpty()) {
+            return Map.of();
+        }
+
+        List<ProjectMember> owners =
+                projectMemberRepository.findAllByProjectIdInAndRoleAndUserIdNot(
+                        projectIds, ProjectRole.OWNER, deletedUserId);
+        Map<Long, User> ownersByProjectId = new HashMap<>();
+        for (ProjectMember owner : owners) {
+            ownersByProjectId.putIfAbsent(owner.getProject().getId(), owner.getUser());
+        }
+
+        for (Long projectId : projectIds) {
+            if (ownersByProjectId.containsKey(projectId)) {
+                continue;
+            }
             throw new ResponseStatusException(
                     HttpStatus.CONFLICT,
                     "Cannot delete user "
                             + deletedUserId
-                            + " because task "
-                            + task.getId()
-                            + " has no project");
+                            + " because project "
+                            + projectId
+                            + " has no owner");
         }
-        Long projectId = task.getProject().getId();
-        ProjectMember owner =
-                projectMemberRepository
-                        .findFirstByProjectIdAndRoleAndUserIdNot(
-                                projectId, ProjectRole.OWNER, deletedUserId)
-                        .orElseThrow(
-                                () ->
-                                        new ResponseStatusException(
-                                                HttpStatus.CONFLICT,
-                                                "Cannot delete user "
-                                                        + deletedUserId
-                                                        + " because project "
-                                                        + projectId
-                                                        + " has no owner"));
-        return owner.getUser();
+        return ownersByProjectId;
     }
 }

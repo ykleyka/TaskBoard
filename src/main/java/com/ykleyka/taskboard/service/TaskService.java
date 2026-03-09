@@ -1,5 +1,6 @@
 package com.ykleyka.taskboard.service;
 
+import com.ykleyka.taskboard.dto.TaskDetailsResponse;
 import com.ykleyka.taskboard.dto.TaskPatchRequest;
 import com.ykleyka.taskboard.dto.TaskPutRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
@@ -32,15 +33,10 @@ public class TaskService {
             Map.entry("status", "status"),
             Map.entry("priority", "priority"),
             Map.entry("projectId", "project.id"),
-            Map.entry("project.id", "project.id"),
             Map.entry("creatorId", "creator.id"),
-            Map.entry("creator.id", "creator.id"),
             Map.entry("creatorUsername", "creator.username"),
-            Map.entry("creator.username", "creator.username"),
             Map.entry("assigneeId", "assignee.id"),
-            Map.entry("assignee.id", "assignee.id"),
             Map.entry("assigneeUsername", "assignee.username"),
-            Map.entry("assignee.username", "assignee.username"),
             Map.entry("createdAt", "createdAt"),
             Map.entry("updatedAt", "updatedAt"),
             Map.entry("dueDate", "dueDate"));
@@ -87,12 +83,16 @@ public class TaskService {
         return Sort.by(sortDir, fieldPath);
     }
 
-    public TaskResponse getTaskById(Long id) {
-        return mapper.toResponse(findTask(id));
+    public TaskDetailsResponse getTaskById(Long id) {
+        return mapper.toDetailsResponse(findDetailedTask(id));
     }
 
     private Task findTask(Long id) {
         return repository.findById(id).orElseThrow(() -> new TaskNotFoundException(id));
+    }
+
+    private Task findDetailedTask(Long id) {
+        return repository.findDetailedById(id).orElseThrow(() -> new TaskNotFoundException(id));
     }
 
     public TaskResponse createTask(TaskRequest request) {

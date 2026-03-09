@@ -11,11 +11,13 @@ public record TaskResponse(
     Status status,
     Priority priority,
     Long projectId,
+    String projectName,
     Long creatorId,
     String creatorUsername,
     Long assigneeId,
     String assigneeUsername,
     Instant dueDate,
+    boolean overdue,
     Instant createdAt,
     Instant updatedAt
 ) {
