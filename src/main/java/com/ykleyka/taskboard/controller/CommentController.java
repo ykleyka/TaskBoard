@@ -1,11 +1,11 @@
 package com.ykleyka.taskboard.controller;
 
-import com.ykleyka.taskboard.dto.CommentPutRequest;
 import com.ykleyka.taskboard.dto.CommentRequest;
 import com.ykleyka.taskboard.dto.CommentResponse;
 import com.ykleyka.taskboard.service.CommentService;
 import jakarta.validation.Valid;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,12 +17,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("api")
+@RequiredArgsConstructor
 public class CommentController {
     private final CommentService service;
-
-    public CommentController(CommentService service) {
-        this.service = service;
-    }
 
     @GetMapping("/tasks/{taskId}/comments")
     public List<CommentResponse> getCommentsByTaskId(@PathVariable Long taskId) {
@@ -37,7 +34,7 @@ public class CommentController {
 
     @PutMapping("/comments/{id}")
     public CommentResponse updateComment(
-            @PathVariable Long id, @Valid @RequestBody CommentPutRequest request) {
+            @PathVariable Long id, @Valid @RequestBody CommentRequest request) {
         return service.updateComment(id, request);
     }
 

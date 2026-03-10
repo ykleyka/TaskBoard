@@ -2,13 +2,13 @@ package com.ykleyka.taskboard.controller;
 
 import com.ykleyka.taskboard.dto.TaskDetailsResponse;
 import com.ykleyka.taskboard.dto.TaskPatchRequest;
-import com.ykleyka.taskboard.dto.TaskPutRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
 import com.ykleyka.taskboard.dto.TaskResponse;
 import com.ykleyka.taskboard.model.enums.Status;
 import com.ykleyka.taskboard.service.TaskService;
 import jakarta.validation.Valid;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -23,12 +23,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("api/tasks")
+@RequiredArgsConstructor
 public class TaskController {
     private final TaskService service;
-
-    public TaskController(TaskService service) {
-        this.service = service;
-    }
 
     @GetMapping
     public List<TaskResponse> getTasks(
@@ -51,7 +48,7 @@ public class TaskController {
 
     @PutMapping("/{id}")
     public TaskResponse updateTask(
-            @PathVariable Long id, @Valid @RequestBody TaskPutRequest request) {
+            @PathVariable Long id, @Valid @RequestBody TaskRequest request) {
         return service.updateTask(id, request);
     }
 

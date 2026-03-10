@@ -2,7 +2,6 @@ package com.ykleyka.taskboard.mapper;
 
 import com.ykleyka.taskboard.dto.TaskCommentSummaryResponse;
 import com.ykleyka.taskboard.dto.TaskDetailsResponse;
-import com.ykleyka.taskboard.dto.TaskPutRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
 import com.ykleyka.taskboard.dto.TaskResponse;
 import com.ykleyka.taskboard.dto.TaskTagSummaryResponse;
@@ -20,20 +19,7 @@ public class TaskMapper {
         Task task = new Task();
         task.setTitle(request.title());
         task.setDescription(request.description());
-        task.setStatus(Status.TODO);
-        task.setPriority(request.priority());
-        task.setDueDate(request.dueDate());
-        Instant now = Instant.now();
-        task.setCreatedAt(now);
-        task.setUpdatedAt(now);
-        return task;
-    }
-
-    public Task toEntity(TaskPutRequest request) {
-        Task task = new Task();
-        task.setTitle(request.title());
-        task.setDescription(request.description());
-        task.setStatus(request.status());
+        task.setStatus(request.status() == null ? Status.TODO : request.status());
         task.setPriority(request.priority());
         task.setDueDate(request.dueDate());
         Instant now = Instant.now();

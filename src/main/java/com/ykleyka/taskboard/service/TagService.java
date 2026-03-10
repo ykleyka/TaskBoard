@@ -11,23 +11,26 @@ import com.ykleyka.taskboard.repository.TagRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import java.time.Instant;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@RequiredArgsConstructor
 public class TagService {
     private final TagMapper mapper;
     private final TagRepository tagRepository;
     private final TaskRepository taskRepository;
 
-    public TagService(TagMapper mapper, TagRepository tagRepository, TaskRepository taskRepository) {
-        this.mapper = mapper;
-        this.tagRepository = tagRepository;
-        this.taskRepository = taskRepository;
-    }
-
     public List<TagResponse> getTags() {
-        return tagRepository.findAll().stream().map(mapper::toResponse).toList();
+        return tagRepository.findAllWithUsageCount().stream()
+                .map(
+                        row ->
+                                new TagResponse(
+                                        row.getId(),
+                                        row.getName(),
+                                        Math.toIntExact(row.getUsageCount())))
+                .toList();
     }
 
     public TagResponse createTag(TagRequest request) {

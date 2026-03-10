@@ -5,6 +5,7 @@ import com.ykleyka.taskboard.dto.TagResponse;
 import com.ykleyka.taskboard.service.TagService;
 import jakarta.validation.Valid;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -15,12 +16,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("api")
+@RequiredArgsConstructor
 public class TagController {
     private final TagService service;
-
-    public TagController(TagService service) {
-        this.service = service;
-    }
 
     @GetMapping("/tags")
     public List<TagResponse> getTags() {

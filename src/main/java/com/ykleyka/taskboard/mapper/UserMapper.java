@@ -1,6 +1,5 @@
 package com.ykleyka.taskboard.mapper;
 
-import com.ykleyka.taskboard.dto.UserPutRequest;
 import com.ykleyka.taskboard.dto.UserRequest;
 import com.ykleyka.taskboard.dto.UserResponse;
 import com.ykleyka.taskboard.model.User;
@@ -10,16 +9,6 @@ import org.springframework.stereotype.Component;
 public class UserMapper {
 
     public User toEntity(UserRequest request) {
-        User user = new User();
-        user.setUsername(request.username());
-        user.setEmail(request.email());
-        user.setPasswordHash(request.password());
-        user.setFirstName(request.firstName());
-        user.setLastName(request.lastName());
-        return user;
-    }
-
-    public User toEntity(UserPutRequest request) {
         User user = new User();
         user.setUsername(request.username());
         user.setEmail(request.email());

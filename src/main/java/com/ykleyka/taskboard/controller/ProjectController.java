@@ -1,6 +1,5 @@
 package com.ykleyka.taskboard.controller;
 
-import com.ykleyka.taskboard.dto.ProjectCreateRequest;
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
 import com.ykleyka.taskboard.dto.ProjectPatchRequest;
 import com.ykleyka.taskboard.dto.ProjectRequest;
@@ -8,6 +7,7 @@ import com.ykleyka.taskboard.dto.ProjectResponse;
 import com.ykleyka.taskboard.service.ProjectService;
 import jakarta.validation.Valid;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -20,12 +20,9 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequestMapping("api/projects")
+@RequiredArgsConstructor
 public class ProjectController {
     private final ProjectService service;
-
-    public ProjectController(ProjectService service) {
-        this.service = service;
-    }
 
     @GetMapping
     public List<ProjectResponse> getProjects() {
@@ -38,7 +35,7 @@ public class ProjectController {
     }
 
     @PostMapping
-    public ProjectResponse createProject(@Valid @RequestBody ProjectCreateRequest request) {
+    public ProjectResponse createProject(@Valid @RequestBody ProjectRequest request) {
         return service.createProject(request);
     }
 

@@ -1,5 +1,6 @@
 package com.ykleyka.taskboard.service;
 
+import com.ykleyka.taskboard.dto.UserPatchRequest;
 import com.ykleyka.taskboard.exception.UserConflictException;
 import com.ykleyka.taskboard.exception.UserNotFoundException;
 import com.ykleyka.taskboard.model.ProjectMember;
@@ -16,6 +17,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -23,25 +25,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
+@RequiredArgsConstructor
 public class UserService {
     private final CommentRepository commentRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final PasswordEncoder passwordEncoder;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
-
-    public UserService(
-            UserRepository userRepository,
-            PasswordEncoder passwordEncoder,
-            TaskRepository taskRepository,
-            CommentRepository commentRepository,
-            ProjectMemberRepository projectMemberRepository) {
-        this.userRepository = userRepository;
-        this.passwordEncoder = passwordEncoder;
-        this.taskRepository = taskRepository;
-        this.commentRepository = commentRepository;
-        this.projectMemberRepository = projectMemberRepository;
-    }
 
     public List<User> getUsers() {
         return userRepository.findAll();
@@ -74,14 +64,13 @@ public class UserService {
         return userRepository.save(user);
     }
 
-    public User patchUser(
-            Long id,
-            String username,
-            String email,
-            String passwordHash,
-            String firstName,
-            String lastName) {
+    public User patchUser(Long id, UserPatchRequest request) {
         User user = findUser(id);
+        String username = request.username();
+        String email = request.email();
+        String passwordHash = request.password();
+        String firstName = request.firstName();
+        String lastName = request.lastName();
         if (username != null && !username.equalsIgnoreCase(user.getUsername())) {
             validateUsernameAndEmailForUpdate(id, username, user.getEmail());
             user.setUsername(username);

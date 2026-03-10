@@ -1,6 +1,5 @@
 package com.ykleyka.taskboard.service;
 
-import com.ykleyka.taskboard.dto.CommentPutRequest;
 import com.ykleyka.taskboard.dto.CommentRequest;
 import com.ykleyka.taskboard.dto.CommentResponse;
 import com.ykleyka.taskboard.exception.CommentNotFoundException;
@@ -15,25 +14,18 @@ import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
+@RequiredArgsConstructor
 public class CommentService {
     private final CommentMapper mapper;
     private final CommentRepository commentRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
-
-    public CommentService(
-            CommentMapper mapper,
-            CommentRepository commentRepository,
-            TaskRepository taskRepository,
-            UserRepository userRepository) {
-        this.mapper = mapper;
-        this.commentRepository = commentRepository;
-        this.taskRepository = taskRepository;
-        this.userRepository = userRepository;
-    }
 
     public List<CommentResponse> getCommentsByTaskId(Long taskId) {
         if (!taskRepository.existsById(taskId)) {
@@ -45,13 +37,16 @@ public class CommentService {
     }
 
     public CommentResponse createComment(Long taskId, CommentRequest request) {
+        if (request.authorId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "authorId is required");
+        }
         Comment comment = mapper.toEntity(request);
         comment.setTask(findTask(taskId));
         comment.setAuthor(findUser(request.authorId()));
         return mapper.toResponse(commentRepository.save(comment));
     }
 
-    public CommentResponse updateComment(Long id, CommentPutRequest request) {
+    public CommentResponse updateComment(Long id, CommentRequest request) {
         Comment comment = findComment(id);
         comment.setText(request.text());
         comment.setUpdatedAt(Instant.now());

@@ -1,6 +1,5 @@
 package com.ykleyka.taskboard.service;
 
-import com.ykleyka.taskboard.dto.ProjectCreateRequest;
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
 import com.ykleyka.taskboard.dto.ProjectPatchRequest;
 import com.ykleyka.taskboard.dto.ProjectRequest;
@@ -19,29 +18,20 @@ import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
+@RequiredArgsConstructor
 public class ProjectService {
     private final ProjectMapper mapper;
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
-
-    public ProjectService(
-            ProjectMapper mapper,
-            ProjectRepository projectRepository,
-            TaskRepository taskRepository,
-            UserRepository userRepository,
-            ProjectMemberRepository projectMemberRepository) {
-        this.mapper = mapper;
-        this.projectRepository = projectRepository;
-        this.taskRepository = taskRepository;
-        this.userRepository = userRepository;
-        this.projectMemberRepository = projectMemberRepository;
-    }
 
     public List<ProjectResponse> getProjects() {
         return projectRepository.findAll().stream().map(mapper::toResponse).toList();
@@ -52,7 +42,10 @@ public class ProjectService {
     }
 
     @Transactional
-    public ProjectResponse createProject(ProjectCreateRequest request) {
+    public ProjectResponse createProject(ProjectRequest request) {
+        if (request.ownerId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ownerId is required");
+        }
         User owner = findUser(request.ownerId());
         Project project = mapper.toEntity(request);
         Project savedProject = projectRepository.save(project);

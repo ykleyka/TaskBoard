@@ -2,7 +2,6 @@ package com.ykleyka.taskboard.service;
 
 import com.ykleyka.taskboard.dto.TaskDetailsResponse;
 import com.ykleyka.taskboard.dto.TaskPatchRequest;
-import com.ykleyka.taskboard.dto.TaskPutRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
 import com.ykleyka.taskboard.dto.TaskResponse;
 import com.ykleyka.taskboard.exception.ProjectNotFoundException;
@@ -19,12 +18,14 @@ import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
+import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
+@RequiredArgsConstructor
 public class TaskService {
     private static final Map<String, String> SORT_FIELDS = Map.ofEntries(
             Map.entry("id", "id"),
@@ -45,17 +46,6 @@ public class TaskService {
     private final TaskRepository repository;
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
-
-    public TaskService(
-            TaskMapper mapper,
-            TaskRepository repository,
-            UserRepository userRepository,
-            ProjectRepository projectRepository) {
-        this.mapper = mapper;
-        this.repository = repository;
-        this.userRepository = userRepository;
-        this.projectRepository = projectRepository;
-    }
 
     public List<TaskResponse> getTasks(
             Status status, String assignee, String sortBy, Sort.Direction sortDir) {
@@ -96,7 +86,11 @@ public class TaskService {
     }
 
     public TaskResponse createTask(TaskRequest request) {
+        if (request.creatorId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "creatorId is required");
+        }
         Task task = mapper.toEntity(request);
+        task.setStatus(Status.TODO);
         task.setProject(findProject(request.projectId()));
         task.setCreator(findUser(request.creatorId()));
         task.setAssignee(request.assigneeId() == null ? null : findUser(request.assigneeId()));
@@ -104,7 +98,10 @@ public class TaskService {
         return mapper.toResponse(repository.save(task));
     }
 
-    public TaskResponse updateTask(Long id, TaskPutRequest request) {
+    public TaskResponse updateTask(Long id, TaskRequest request) {
+        if (request.status() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status is required for PUT");
+        }
         Task oldTask = findTask(id);
         Task newTask = mapper.toEntity(request);
         newTask.setId(oldTask.getId());

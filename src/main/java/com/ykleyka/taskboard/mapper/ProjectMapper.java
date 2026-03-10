@@ -1,6 +1,5 @@
 package com.ykleyka.taskboard.mapper;
 
-import com.ykleyka.taskboard.dto.ProjectCreateRequest;
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
 import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
@@ -17,16 +16,6 @@ import org.springframework.stereotype.Component;
 public class ProjectMapper {
 
     public Project toEntity(ProjectRequest request) {
-        Project project = new Project();
-        project.setName(request.name());
-        project.setDescription(request.description());
-        Instant now = Instant.now();
-        project.setCreatedAt(now);
-        project.setUpdatedAt(now);
-        return project;
-    }
-
-    public Project toEntity(ProjectCreateRequest request) {
         Project project = new Project();
         project.setName(request.name());
         project.setDescription(request.description());
