@@ -1,5 +1,8 @@
 package com.ykleyka.taskboard.service;
 
+import com.ykleyka.taskboard.cache.TagCache;
+import com.ykleyka.taskboard.cache.TaskSearchCache;
+import com.ykleyka.taskboard.cache.PageKey;
 import com.ykleyka.taskboard.dto.TagRequest;
 import com.ykleyka.taskboard.dto.TagResponse;
 import com.ykleyka.taskboard.exception.TagNotFoundException;
@@ -12,6 +15,7 @@ import com.ykleyka.taskboard.repository.TaskRepository;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,21 +25,34 @@ public class TagService {
     private final TagMapper mapper;
     private final TagRepository tagRepository;
     private final TaskRepository taskRepository;
+    private final TagCache tagCache;
+    private final TaskSearchCache searchCache;
 
-    public List<TagResponse> getTags() {
-        return tagRepository.findAllWithUsageCount().stream()
-                .map(
-                        row ->
-                                new TagResponse(
-                                        row.getId(),
-                                        row.getName(),
-                                        Math.toIntExact(row.getUsageCount())))
-                .toList();
+    public List<TagResponse> getTags(Pageable pageable) {
+        PageKey key = PageKey.from(pageable);
+        List<TagResponse> cached = tagCache.getTags(key);
+        if (cached != null) {
+            return cached;
+        }
+        List<TagResponse> content =
+                tagRepository.findAllWithUsageCount(pageable)
+                        .map(
+                                row ->
+                                        new TagResponse(
+                                                row.getId(),
+                                                row.getName(),
+                                                Math.toIntExact(row.getUsageCount())))
+                        .getContent();
+        tagCache.putTags(key, content);
+        return content;
     }
 
     public TagResponse createTag(TagRequest request) {
         Tag tag = mapper.toEntity(request);
-        return mapper.toResponse(tagRepository.save(tag));
+        TagResponse response = mapper.toResponse(tagRepository.save(tag));
+        tagCache.invalidate();
+        searchCache.invalidate();
+        return response;
     }
 
     @Transactional
@@ -49,6 +66,8 @@ public class TagService {
             task.getTags().add(tag);
             task.setUpdatedAt(Instant.now());
             taskRepository.save(task);
+            tagCache.invalidate();
+            searchCache.invalidate();
         }
         return mapper.toResponse(tag);
     }
@@ -62,6 +81,8 @@ public class TagService {
         if (removed) {
             task.setUpdatedAt(Instant.now());
             taskRepository.save(task);
+            tagCache.invalidate();
+            searchCache.invalidate();
         }
         return mapper.toResponse(tag);
     }

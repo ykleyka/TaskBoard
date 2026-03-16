@@ -6,6 +6,8 @@ import com.ykleyka.taskboard.service.TagService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -21,8 +23,9 @@ public class TagController {
     private final TagService service;
 
     @GetMapping("/tags")
-    public List<TagResponse> getTags() {
-        return service.getTags();
+    public List<TagResponse> getTags(
+            @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
+        return service.getTags(pageable);
     }
 
     @PostMapping("/tags")

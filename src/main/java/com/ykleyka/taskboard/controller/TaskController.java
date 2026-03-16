@@ -7,9 +7,11 @@ import com.ykleyka.taskboard.dto.TaskResponse;
 import com.ykleyka.taskboard.model.enums.Status;
 import com.ykleyka.taskboard.service.TaskService;
 import jakarta.validation.Valid;
+import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Sort;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -31,14 +33,36 @@ public class TaskController {
     public List<TaskResponse> getTasks(
             @RequestParam(required = false) Status status,
             @RequestParam(required = false) String assignee,
-            @RequestParam(defaultValue = "id") String sortBy,
-            @RequestParam(defaultValue = "ASC") Sort.Direction sortDir) {
-        return service.getTasks(status, assignee, sortBy, sortDir);
+            @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
+        return service.getTasks(status, assignee, pageable);
     }
 
     @GetMapping("/{id}")
     public TaskDetailsResponse getTaskById(@PathVariable Long id) {
         return service.getTaskById(id);
+    }
+
+    @GetMapping("/search")
+    public List<TaskResponse> searchTasks(
+            @RequestParam Long projectId,
+            @RequestParam String tagName,
+            @RequestParam(required = false) Status status,
+            @RequestParam(required = false) String assignee,
+            @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
+        return service.searchTasksByProjectIdAndTag(
+                projectId, tagName, status, assignee, pageable);
+    }
+
+    @GetMapping("/overdue")
+    public List<TaskResponse> searchOverdueTasksNative(
+            @RequestParam Long projectId,
+            @RequestParam String tagName,
+            @RequestParam(required = false) Status status,
+            @RequestParam(required = false) String assignee,
+            @RequestParam(required = false) Instant dueBefore,
+            @PageableDefault(page = 0, size = 20, sort = "dueDate") Pageable pageable) {
+        return service.searchOverdueTasksByProjectIdAndTagNative(
+                projectId, tagName, status, assignee, dueBefore, pageable);
     }
 
     @PostMapping
@@ -53,7 +77,8 @@ public class TaskController {
     }
 
     @PatchMapping("/{id}")
-    public TaskResponse patchTask(@PathVariable Long id, @Valid @RequestBody TaskPatchRequest request) {
+    public TaskResponse patchTask(
+            @PathVariable Long id, @Valid @RequestBody TaskPatchRequest request) {
         return service.patchTask(id, request);
     }
 

@@ -1,5 +1,10 @@
 package com.ykleyka.taskboard.service;
 
+import com.ykleyka.taskboard.cache.CommentCache;
+import com.ykleyka.taskboard.cache.ProjectCache;
+import com.ykleyka.taskboard.cache.TagCache;
+import com.ykleyka.taskboard.cache.TaskSearchCache;
+import com.ykleyka.taskboard.cache.TaskSearchCache.TaskSearchKey;
 import com.ykleyka.taskboard.dto.TaskDetailsResponse;
 import com.ykleyka.taskboard.dto.TaskPatchRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
@@ -17,60 +22,41 @@ import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
+import java.util.function.Supplier;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.Sort;
-import org.springframework.http.HttpStatus;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @RequiredArgsConstructor
 public class TaskService {
-    private static final Map<String, String> SORT_FIELDS = Map.ofEntries(
-            Map.entry("id", "id"),
-            Map.entry("title", "title"),
-            Map.entry("description", "description"),
-            Map.entry("status", "status"),
-            Map.entry("priority", "priority"),
-            Map.entry("projectId", "project.id"),
-            Map.entry("creatorId", "creator.id"),
-            Map.entry("creatorUsername", "creator.username"),
-            Map.entry("assigneeId", "assignee.id"),
-            Map.entry("assigneeUsername", "assignee.username"),
-            Map.entry("createdAt", "createdAt"),
-            Map.entry("updatedAt", "updatedAt"),
-            Map.entry("dueDate", "dueDate"));
-
     private final TaskMapper mapper;
     private final TaskRepository repository;
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
+    private final ProjectCache projectCache;
+    private final TagCache tagCache;
+    private final CommentCache commentCache;
+    private final TaskSearchCache searchCache;
 
     public List<TaskResponse> getTasks(
-            Status status, String assignee, String sortBy, Sort.Direction sortDir) {
-        Sort sort = buildSort(sortBy, sortDir);
-        List<Task> tasks;
+            Status status,
+            String assignee,
+            Pageable pageable) {
+        Page<Task> tasks;
         if (status != null && assignee != null && !assignee.isBlank()) {
-            tasks = repository.findAllByStatusAndAssigneeUsernameIgnoreCase(status, assignee, sort);
+            tasks =
+                    repository.findAllByStatusAndAssigneeUsernameIgnoreCase(
+                            status, assignee, pageable);
         } else if (status != null) {
-            tasks = repository.findAllByStatus(status, sort);
+            tasks = repository.findAllByStatus(status, pageable);
         } else if (assignee != null && !assignee.isBlank()) {
-            tasks = repository.findAllByAssigneeUsernameIgnoreCase(assignee, sort);
+            tasks = repository.findAllByAssigneeUsernameIgnoreCase(assignee, pageable);
         } else {
-            tasks = repository.findAll(sort);
+            tasks = repository.findAll(pageable);
         }
-        return tasks.stream().map(mapper::toResponse).toList();
-    }
-
-    private Sort buildSort(String sortBy, Sort.Direction sortDir) {
-        String fieldPath = SORT_FIELDS.get(sortBy);
-        if (fieldPath == null) {
-            throw new ResponseStatusException(
-                    HttpStatus.BAD_REQUEST,
-                    "Unsupported sortBy: " + sortBy + ". Supported values: " + SORT_FIELDS.keySet());
-        }
-        return Sort.by(sortDir, fieldPath);
+        return tasks.map(mapper::toResponse).getContent();
     }
 
     public TaskDetailsResponse getTaskById(Long id) {
@@ -90,26 +76,32 @@ public class TaskService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "creatorId is required");
         }
         Task task = mapper.toEntity(request);
-        task.setStatus(Status.TODO);
+        task.setStatus(request.status() == null ? Status.TODO : request.status());
         task.setProject(findProject(request.projectId()));
         task.setCreator(findUser(request.creatorId()));
         task.setAssignee(request.assigneeId() == null ? null : findUser(request.assigneeId()));
         task.setUpdatedAt(Instant.now());
-        return mapper.toResponse(repository.save(task));
+        TaskResponse response = mapper.toResponse(repository.save(task));
+        projectCache.invalidate();
+        tagCache.invalidate();
+        invalidateSearchCache();
+        return response;
     }
 
     public TaskResponse updateTask(Long id, TaskRequest request) {
-        if (request.status() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "status is required for PUT");
-        }
         Task oldTask = findTask(id);
         Task newTask = mapper.toEntity(request);
+        newTask.setStatus(request.status() == null ? Status.TODO : request.status());
         newTask.setId(oldTask.getId());
         newTask.setCreatedAt(oldTask.getCreatedAt());
         newTask.setCreator(oldTask.getCreator());
         newTask.setProject(findProject(request.projectId()));
         newTask.setAssignee(request.assigneeId() == null ? null : findUser(request.assigneeId()));
-        return mapper.toResponse(repository.save(newTask));
+        TaskResponse response = mapper.toResponse(repository.save(newTask));
+        projectCache.invalidate();
+        tagCache.invalidate();
+        invalidateSearchCache();
+        return response;
     }
 
     public TaskResponse patchTask(Long id, TaskPatchRequest request) {
@@ -138,13 +130,70 @@ public class TaskService {
         }
 
         task.setUpdatedAt(Instant.now());
-        return mapper.toResponse(repository.save(task));
+        TaskResponse response = mapper.toResponse(repository.save(task));
+        projectCache.invalidate();
+        tagCache.invalidate();
+        invalidateSearchCache();
+        return response;
     }
 
     public TaskResponse deleteTask(Long id) {
         Task task = findTask(id);
         repository.delete(task);
-        return mapper.toResponse(task);
+        TaskResponse response = mapper.toResponse(task);
+        projectCache.invalidate();
+        tagCache.invalidate();
+        commentCache.invalidateTask(id);
+        invalidateSearchCache();
+        return response;
+    }
+
+    public List<TaskResponse> searchTasksByProjectIdAndTag(
+            Long projectId,
+            String tagName,
+            Status status,
+            String assignee,
+            Pageable pageable) {
+        TaskSearchKey key =
+                TaskSearchKey.from(projectId, tagName, status, assignee, null, pageable, false);
+        return getCachedSearch(
+                key,
+                () ->
+                        repository.searchByProjectIdAndTag(
+                                projectId, tagName, status, assignee, pageable));
+    }
+
+    public List<TaskResponse> searchOverdueTasksByProjectIdAndTagNative(
+            Long projectId,
+            String tagName,
+            Status status,
+            String assignee,
+            Instant dueBefore,
+            Pageable pageable) {
+        Instant effectiveDueBefore = dueBefore == null ? Instant.now() : dueBefore;
+        TaskSearchKey key = TaskSearchKey.from(
+                        projectId, tagName, status, assignee, effectiveDueBefore, pageable, true);
+        return getCachedSearch(
+                key,
+                () ->
+                        repository.searchOverdueByProjectIdAndTagNative(
+                                projectId, tagName, status, assignee, effectiveDueBefore, pageable));
+    }
+
+    private List<TaskResponse> getCachedSearch(
+            TaskSearchKey key, Supplier<Page<Task>> loader) {
+        List<TaskResponse> cached = searchCache.get(key);
+        if (cached != null) {
+            return cached;
+        }
+        Page<TaskResponse> page = loader.get().map(mapper::toResponse);
+        List<TaskResponse> content = page.getContent();
+        searchCache.put(key, content);
+        return content;
+    }
+
+    private void invalidateSearchCache() {
+        searchCache.invalidate();
     }
 
     private User findUser(Long id) {
@@ -154,4 +203,5 @@ public class TaskService {
     private Project findProject(Long id) {
         return projectRepository.findById(id).orElseThrow(() -> new ProjectNotFoundException(id));
     }
+
 }

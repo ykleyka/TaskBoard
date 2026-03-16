@@ -6,6 +6,8 @@ import com.ykleyka.taskboard.service.CommentService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,8 +24,10 @@ public class CommentController {
     private final CommentService service;
 
     @GetMapping("/tasks/{taskId}/comments")
-    public List<CommentResponse> getCommentsByTaskId(@PathVariable Long taskId) {
-        return service.getCommentsByTaskId(taskId);
+    public List<CommentResponse> getCommentsByTaskId(
+            @PathVariable Long taskId,
+            @PageableDefault(page = 0, size = 20, sort = "createdAt") Pageable pageable) {
+        return service.getCommentsByTaskId(taskId, pageable);
     }
 
     @PostMapping("/tasks/{taskId}/comments")

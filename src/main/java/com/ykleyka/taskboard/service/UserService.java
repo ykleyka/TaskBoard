@@ -1,5 +1,9 @@
 package com.ykleyka.taskboard.service;
 
+import com.ykleyka.taskboard.cache.ProjectCache;
+import com.ykleyka.taskboard.cache.TaskSearchCache;
+import com.ykleyka.taskboard.cache.UserCache;
+import com.ykleyka.taskboard.cache.PageKey;
 import com.ykleyka.taskboard.dto.UserPatchRequest;
 import com.ykleyka.taskboard.exception.UserConflictException;
 import com.ykleyka.taskboard.exception.UserNotFoundException;
@@ -18,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
@@ -32,13 +37,29 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
+    private final UserCache userCache;
+    private final ProjectCache projectCache;
+    private final TaskSearchCache searchCache;
 
-    public List<User> getUsers() {
-        return userRepository.findAll();
+    public List<User> getUsers(Pageable pageable) {
+        PageKey key = PageKey.from(pageable);
+        List<User> cached = userCache.getUsers(key);
+        if (cached != null) {
+            return cached;
+        }
+        List<User> content = userRepository.findAll(pageable).getContent();
+        userCache.putUsers(key, content);
+        return content;
     }
 
     public User getUserById(Long id) {
-        return findUser(id);
+        User cached = userCache.getUser(id);
+        if (cached != null) {
+            return cached;
+        }
+        User user = findUser(id);
+        userCache.putUser(id, user);
+        return user;
     }
 
     public User createUser(User user) {
@@ -47,7 +68,10 @@ public class UserService {
         Instant now = Instant.now();
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        userCache.invalidate();
+        searchCache.invalidate();
+        return saved;
     }
 
     public User updateUser(Long id, User request) {
@@ -61,7 +85,11 @@ public class UserService {
         user.setFirstName(request.getFirstName());
         user.setLastName(request.getLastName());
         user.setUpdatedAt(Instant.now());
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        userCache.invalidate();
+        projectCache.invalidate();
+        searchCache.invalidate();
+        return saved;
     }
 
     public User patchUser(Long id, UserPatchRequest request) {
@@ -89,7 +117,11 @@ public class UserService {
             user.setLastName(lastName);
         }
         user.setUpdatedAt(Instant.now());
-        return userRepository.save(user);
+        User saved = userRepository.save(user);
+        userCache.invalidate();
+        projectCache.invalidate();
+        searchCache.invalidate();
+        return saved;
     }
 
     @Transactional
@@ -119,6 +151,9 @@ public class UserService {
         commentRepository.deleteAllByAuthorId(id);
         projectMemberRepository.deleteAllByUserId(id);
         userRepository.delete(user);
+        userCache.invalidate();
+        projectCache.invalidate();
+        searchCache.invalidate();
         return user;
     }
 

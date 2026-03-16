@@ -8,6 +8,8 @@ import com.ykleyka.taskboard.service.ProjectService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -25,8 +27,9 @@ public class ProjectController {
     private final ProjectService service;
 
     @GetMapping
-    public List<ProjectResponse> getProjects() {
-        return service.getProjects();
+    public List<ProjectResponse> getProjects(
+            @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
+        return service.getProjects(pageable);
     }
 
     @GetMapping("/{id}")

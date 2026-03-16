@@ -1,5 +1,7 @@
 package com.ykleyka.taskboard.service;
 
+import com.ykleyka.taskboard.cache.CommentCache;
+import com.ykleyka.taskboard.cache.CommentPageKey;
 import com.ykleyka.taskboard.dto.CommentRequest;
 import com.ykleyka.taskboard.dto.CommentResponse;
 import com.ykleyka.taskboard.exception.CommentNotFoundException;
@@ -15,6 +17,7 @@ import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -26,14 +29,22 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
+    private final CommentCache commentCache;
 
-    public List<CommentResponse> getCommentsByTaskId(Long taskId) {
+    public List<CommentResponse> getCommentsByTaskId(Long taskId, Pageable pageable) {
         if (!taskRepository.existsById(taskId)) {
             throw new TaskNotFoundException(taskId);
         }
-        return commentRepository.findAllByTaskIdOrderByCreatedAtAsc(taskId).stream()
-                .map(mapper::toResponse)
-                .toList();
+        CommentPageKey key = CommentPageKey.from(taskId, pageable);
+        List<CommentResponse> cached = commentCache.getByTaskId(key);
+        if (cached != null) {
+            return cached;
+        }
+        List<CommentResponse> content =
+                commentRepository.findAllByTaskId(taskId, pageable).map(mapper::toResponse)
+                        .getContent();
+        commentCache.putByTaskId(key, content);
+        return content;
     }
 
     public CommentResponse createComment(Long taskId, CommentRequest request) {
@@ -43,20 +54,30 @@ public class CommentService {
         Comment comment = mapper.toEntity(request);
         comment.setTask(findTask(taskId));
         comment.setAuthor(findUser(request.authorId()));
-        return mapper.toResponse(commentRepository.save(comment));
+        CommentResponse response = mapper.toResponse(commentRepository.save(comment));
+        commentCache.invalidateTask(taskId);
+        return response;
     }
 
     public CommentResponse updateComment(Long id, CommentRequest request) {
         Comment comment = findComment(id);
         comment.setText(request.text());
         comment.setUpdatedAt(Instant.now());
-        return mapper.toResponse(commentRepository.save(comment));
+        CommentResponse response = mapper.toResponse(commentRepository.save(comment));
+        if (comment.getTask() != null) {
+            commentCache.invalidateTask(comment.getTask().getId());
+        }
+        return response;
     }
 
     public CommentResponse deleteComment(Long id) {
         Comment comment = findComment(id);
         commentRepository.delete(comment);
-        return mapper.toResponse(comment);
+        CommentResponse response = mapper.toResponse(comment);
+        if (comment.getTask() != null) {
+            commentCache.invalidateTask(comment.getTask().getId());
+        }
+        return response;
     }
 
     private Comment findComment(Long id) {

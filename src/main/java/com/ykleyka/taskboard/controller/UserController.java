@@ -9,6 +9,8 @@ import com.ykleyka.taskboard.service.UserService;
 import jakarta.validation.Valid;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -27,8 +29,9 @@ public class UserController {
     private final UserService service;
 
     @GetMapping
-    public List<UserResponse> getUsers() {
-        return service.getUsers().stream().map(mapper::toResponse).toList();
+    public List<UserResponse> getUsers(
+            @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
+        return service.getUsers(pageable).map(mapper::toResponse).getContent();
     }
 
     @GetMapping("/{id}")
