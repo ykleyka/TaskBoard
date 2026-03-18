@@ -28,6 +28,9 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     @EntityGraph(attributePaths = {"project", "creator", "assignee"})
     List<Task> findAllByCreatorIdOrAssigneeId(Long creatorId, Long assigneeId);
 
+    @EntityGraph(attributePaths = {"tags", "comments"})
+    List<Task> findAllByProjectId(Long projectId);
+
     @EntityGraph(attributePaths = {"project", "creator", "assignee"})
     Page<Task> findAllByStatus(Status status, Pageable pageable);
 
@@ -50,18 +53,17 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
             JOIN t.tags tag
             LEFT JOIN t.assignee a
             WHERE p.id = :projectId
-              AND lower(tag.name) = lower(:tagName)
+              AND lower(tag.name) = :tagName
               AND (:status IS NULL OR t.status = :status)
-              AND (:assignee IS NULL OR lower(a.username) LIKE lower(concat('%', :assignee, '%')))
+              AND (:assigneePattern IS NULL OR lower(a.username) LIKE :assigneePattern)
             """)
     Page<Task> searchByProjectIdAndTag(
             @Param("projectId") Long projectId,
             @Param("tagName") String tagName,
             @Param("status") Status status,
-            @Param("assignee") String assignee,
+            @Param("assigneePattern") String assigneePattern,
             Pageable pageable);
 
-    @EntityGraph(attributePaths = {"project", "creator", "assignee"})
     @Query(
             value = """
                     SELECT DISTINCT t.*
@@ -70,9 +72,9 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
                     JOIN tags tg ON tt.tag_id = tg.id
                     LEFT JOIN users a ON t.assignee_id = a.id
                     WHERE t.project_id = :projectId
-                      AND lower(tg.name) = lower(:tagName)
-                      AND (:status IS NULL OR t.status = :status)
-                      AND (:assignee IS NULL OR lower(a.username) LIKE lower(concat('%', :assignee, '%')))
+                      AND lower(tg.name) = :tagName
+                      AND (CAST(:statusValue AS text) IS NULL OR t.status = :statusValue)
+                      AND (CAST(:assigneePattern AS text) IS NULL OR lower(a.username) LIKE :assigneePattern)
                       AND t.due_date IS NOT NULL
                       AND t.due_date < :dueBefore
                       AND t.status <> 'COMPLETED'
@@ -84,9 +86,9 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
                     JOIN tags tg ON tt.tag_id = tg.id
                     LEFT JOIN users a ON t.assignee_id = a.id
                     WHERE t.project_id = :projectId
-                      AND lower(tg.name) = lower(:tagName)
-                      AND (:status IS NULL OR t.status = :status)
-                      AND (:assignee IS NULL OR lower(a.username) LIKE lower(concat('%', :assignee, '%')))
+                      AND lower(tg.name) = :tagName
+                      AND (CAST(:statusValue AS text) IS NULL OR t.status = :statusValue)
+                      AND (CAST(:assigneePattern AS text) IS NULL OR lower(a.username) LIKE :assigneePattern)
                       AND t.due_date IS NOT NULL
                       AND t.due_date < :dueBefore
                       AND t.status <> 'COMPLETED'
@@ -95,8 +97,8 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     Page<Task> searchOverdueByProjectIdAndTagNative(
             @Param("projectId") Long projectId,
             @Param("tagName") String tagName,
-            @Param("status") Status status,
-            @Param("assignee") String assignee,
+            @Param("statusValue") String statusValue,
+            @Param("assigneePattern") String assigneePattern,
             @Param("dueBefore") Instant dueBefore,
             Pageable pageable);
 }

@@ -1,9 +1,11 @@
 package com.ykleyka.taskboard.controller;
 
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
+import com.ykleyka.taskboard.dto.ProjectMemberRequest;
 import com.ykleyka.taskboard.dto.ProjectPatchRequest;
 import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
+import com.ykleyka.taskboard.dto.ProjectUserSummaryResponse;
 import com.ykleyka.taskboard.service.ProjectService;
 import jakarta.validation.Valid;
 import java.util.List;
@@ -40,6 +42,12 @@ public class ProjectController {
     @PostMapping
     public ProjectResponse createProject(@Valid @RequestBody ProjectRequest request) {
         return service.createProject(request);
+    }
+
+    @PostMapping("/{id}/members")
+    public ProjectUserSummaryResponse addMember(
+            @PathVariable Long id, @Valid @RequestBody ProjectMemberRequest request) {
+        return service.addMember(id, request);
     }
 
     @PutMapping("/{id}")

@@ -31,7 +31,7 @@ public class UserController {
     @GetMapping
     public List<UserResponse> getUsers(
             @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
-        return service.getUsers(pageable).map(mapper::toResponse).getContent();
+        return service.getUsers(pageable).stream().map(mapper::toResponse).toList();
     }
 
     @GetMapping("/{id}")

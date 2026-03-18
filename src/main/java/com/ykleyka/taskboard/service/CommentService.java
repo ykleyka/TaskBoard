@@ -12,6 +12,7 @@ import com.ykleyka.taskboard.model.Comment;
 import com.ykleyka.taskboard.model.Task;
 import com.ykleyka.taskboard.model.User;
 import com.ykleyka.taskboard.repository.CommentRepository;
+import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
@@ -29,6 +30,7 @@ public class CommentService {
     private final CommentRepository commentRepository;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
+    private final ProjectMemberRepository projectMemberRepository;
     private final CommentCache commentCache;
 
     public List<CommentResponse> getCommentsByTaskId(Long taskId, Pageable pageable) {
@@ -52,8 +54,11 @@ public class CommentService {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "authorId is required");
         }
         Comment comment = mapper.toEntity(request);
-        comment.setTask(findTask(taskId));
-        comment.setAuthor(findUser(request.authorId()));
+        Task task = findTask(taskId);
+        User author = findUser(request.authorId());
+        ensureProjectMember(task, author);
+        comment.setTask(task);
+        comment.setAuthor(author);
         CommentResponse response = mapper.toResponse(commentRepository.save(comment));
         commentCache.invalidateTask(taskId);
         return response;
@@ -61,6 +66,7 @@ public class CommentService {
 
     public CommentResponse updateComment(Long id, CommentRequest request) {
         Comment comment = findComment(id);
+        ensureProjectMember(comment.getTask(), comment.getAuthor());
         comment.setText(request.text());
         comment.setUpdatedAt(Instant.now());
         CommentResponse response = mapper.toResponse(commentRepository.save(comment));
@@ -72,6 +78,7 @@ public class CommentService {
 
     public CommentResponse deleteComment(Long id) {
         Comment comment = findComment(id);
+        ensureProjectMember(comment.getTask(), comment.getAuthor());
         commentRepository.delete(comment);
         CommentResponse response = mapper.toResponse(comment);
         if (comment.getTask() != null) {
@@ -90,5 +97,20 @@ public class CommentService {
 
     private User findUser(Long id) {
         return userRepository.findById(id).orElseThrow(() -> new UserNotFoundException(id));
+    }
+
+    private void ensureProjectMember(Task task, User user) {
+        if (task == null || task.getProject() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task has no project");
+        }
+        if (user == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "User is required");
+        }
+        Long projectId = task.getProject().getId();
+        if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, user.getId())) {
+            throw new ResponseStatusException(
+                    HttpStatus.BAD_REQUEST,
+                    "author must be a member of project " + projectId);
+        }
     }
 }

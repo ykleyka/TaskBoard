@@ -1,5 +1,6 @@
 package com.ykleyka.taskboard.service;
 
+import com.ykleyka.taskboard.cache.CommentCache;
 import com.ykleyka.taskboard.cache.ProjectCache;
 import com.ykleyka.taskboard.cache.TaskSearchCache;
 import com.ykleyka.taskboard.cache.UserCache;
@@ -39,6 +40,7 @@ public class UserService {
     private final UserRepository userRepository;
     private final UserCache userCache;
     private final ProjectCache projectCache;
+    private final CommentCache commentCache;
     private final TaskSearchCache searchCache;
 
     public List<User> getUsers(Pageable pageable) {
@@ -87,6 +89,7 @@ public class UserService {
         user.setUpdatedAt(Instant.now());
         User saved = userRepository.save(user);
         userCache.invalidate();
+        commentCache.invalidate();
         projectCache.invalidate();
         searchCache.invalidate();
         return saved;
@@ -119,6 +122,7 @@ public class UserService {
         user.setUpdatedAt(Instant.now());
         User saved = userRepository.save(user);
         userCache.invalidate();
+        commentCache.invalidate();
         projectCache.invalidate();
         searchCache.invalidate();
         return saved;
@@ -149,6 +153,7 @@ public class UserService {
             taskRepository.saveAll(affectedTasks);
         }
         commentRepository.deleteAllByAuthorId(id);
+        commentCache.invalidate();
         projectMemberRepository.deleteAllByUserId(id);
         userRepository.delete(user);
         userCache.invalidate();
@@ -196,6 +201,11 @@ public class UserService {
 
     private Map<Long, User> loadReplacementOwnersByProjectId(List<Task> affectedTasks, Long deletedUserId) {
         Set<Long> projectIds = new HashSet<>();
+        List<ProjectMember> ownedProjects =
+                projectMemberRepository.findAllByUserIdAndRole(deletedUserId, ProjectRole.OWNER);
+        for (ProjectMember membership : ownedProjects) {
+            projectIds.add(membership.getProject().getId());
+        }
         for (Task task : affectedTasks) {
             if (task.getCreator() == null || !task.getCreator().getId().equals(deletedUserId)) {
                 continue;

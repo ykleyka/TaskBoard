@@ -1,83 +1,129 @@
-# Task Board Application
+# TaskBoard
 
-## Обзор Проекта
+TaskBoard — это REST API на Spring Boot для управления проектами, задачами, тегами, комментариями и пользователями.
 
-Это базовое REST-сервис приложение, разработанное с использованием Spring Boot, для управления задачами в рамках концепции "онлайн-доски задач", аналогичной Jira. Проект реализует многослойную архитектуру, обеспечивающую четкое разделение ответственности между компонентами и предоставляет REST API для выполнения CRUD операций над сущностью `Task`.
-
-## Архитектура
-
-Проект построен на многослойной архитектуре:
-
-*   **Контроллеры (`Controller`):** Обрабатывают входящие HTTP-запросы и возвращают HTTP-ответы.
-*   **Сервисы (`Service`):** Содержат бизнес-логику приложения.
-*   **Репозитории (`Repository`):** Обеспечивают взаимодействие с базой данных.
-*   **DTO (`Data Transfer Objects`):** Объекты для передачи данных между слоями приложения и API.
-*   **Мапперы (`Mapper`):** Отвечают за преобразование между DTO и сущностями (Entity).
-*   **Модели (`Model`):** Представляют собой JPA-сущности, отображаемые на таблицы базы данных.
-
+## Возможности
+- CRUD для пользователей, проектов, задач, тегов и комментариев
+- Поиск задач по вложенным сущностям (проект + теги) через JPQL
+- Поиск просроченных задач через native SQL
+- Пагинация и сортировка для списков (Pageable)
+- In-memory кэши на HashMap для часто запрашиваемых списков и поисков с инвалидацией при изменениях
 ## Технологии
+- Java 21
+- Spring Boot 4.0.2, Spring Web, Spring Data JPA, Validation
+- PostgreSQL
+- Lombok
 
-*   **Java 21**
-*   **Spring Boot:** Фреймворк для быстрого создания Spring-приложений.
-*   **Spring Web:** Для создания RESTful веб-сервисов.
-*   **Maven:** Инструмент для сборки и управления проектом.
-*   **Checkstyle:** Инструмент для проверки соответствия кода стилю Google Java Style.
-*   **Git:** Система контроля версий.
+## Установка
+1. Установите Java 21 и Maven.
+2. Запустите PostgreSQL и выберите базу данных.
+3. Настройте доступ к базе в `src/main/resources/application.properties`.
+4. Опционально создайте `.env` в корне проекта:
 
-## Запуск Проекта
+```properties
+DB_PASSWORD=your_password
+```
 
-### Предварительные Требования
+Файл `.env` подхватывается через `spring.config.import=optional:file:./.env[.properties]`.
 
-*   JDK 17 или выше
-*   Maven 3.x
+## Запуск
+```bash
+mvn spring-boot:run
+```
 
-### Сборка и Запуск
+Или:
 
-1.  **Клонируйте репозиторий:**
-    ```bash
-    git clone <URL вашего репозитория>
-    cd task-board-application
-    ```
-2.  **Соберите проект с помощью Maven:**
-    ```bash
-    mvn clean install
-    ```
-3.  **Запустите приложение:**
-    ```bash
-    mvn spring-boot:run
-    ```
-    или
-    ```bash
-    java -jar target/task-board-application-0.0.1-SNAPSHOT.jar
-    ```
+```bash
+./mvnw spring-boot:run
+```
 
-Приложение будет доступно по адресу `http://localhost:8080`.
+## API
+Базовый путь: `/api`
 
-## API Эндпоинты
+Пользователи:
+- GET `/users`
+- GET `/users/{id}`
+- POST `/users`
+- PUT `/users/{id}`
+- PATCH `/users/{id}`
+- DELETE `/users/{id}`
 
-Базовый URL для всех эндпоинтов: `http://localhost:8080/api/tasks`
+Проекты:
+- GET `/projects`
+- GET `/projects/{id}`
+- POST `/projects`
+- POST `/projects/{id}/members`
+- PUT `/projects/{id}`
+- PATCH `/projects/{id}`
+- DELETE `/projects/{id}`
 
-### `Task` Эндпоинты
+Задачи:
+- GET `/tasks`
+- GET `/tasks/{id}`
+- POST `/tasks`
+- PUT `/tasks/{id}`
+- PATCH `/tasks/{id}`
+- DELETE `/tasks/{id}`
+- GET `/tasks/search` (JPQL)
+- GET `/tasks/overdue` (native SQL)
 
-*   **GET `/api/tasks`**
-    *   Получить список всех задач.
-    *   **Параметры запроса:**
-        *   `status` (опционально): Фильтрация по статусу задачи (например, `TODO`, `IN_PROGRESS`, `COMPLETED`).
-        *   `assignee` (опционально): Фильтрация по исполнителю задачи.
-    *   **Пример:** `GET /api/tasks?status=IN_PROGRESS&assignee=Valik`
-*   **GET `/api/tasks/{id}`**
-    *   Получить задачу по её уникальному идентификатору.
-    *   **Пример:** `GET /api/tasks/1`
-*   **POST `/api/tasks`**
-    *   Создать новую задачу.
-    *   **Тело запроса:** `TaskRequest` DTO
-*   **PUT `/api/tasks/{id}`**
-    *   Полностью обновить существующую задачу по ID.
-    *   **Тело запроса:** `TaskPutRequest` DTO
-*   **PATCH `/api/tasks/{id}`**
-    *   Частично обновить существующую задачу по ID.
-    *   **Тело запроса:** `TaskPatchRequest` DTO
-*   **DELETE `/api/tasks/{id}`**
-    *   Удалить задачу по её уникальному идентификатору.
+Теги:
+- GET `/tags`
+- POST `/tags`
+- POST `/tasks/{taskId}/tags/{tagId}`
+- DELETE `/tasks/{taskId}/tags/{tagId}`
 
-[Проверка SonarQube Cloud](https://sonarcloud.io/project/overview?id=ykleyka_TaskBoard)
+Комментарии:
+- GET `/tasks/{taskId}/comments`
+- POST `/tasks/{taskId}/comments`
+- PUT `/comments/{id}`
+- DELETE `/comments/{id}`
+
+## Пагинация и сортировка
+Все списоковые эндпоинты принимают стандартные параметры Spring Data:
+- `page` (с 0), `size`, `sort` (например `sort=dueDate,desc`)
+
+По умолчанию:
+- `page=0`, `size=20`
+
+Важно: контроллеры возвращают только список элементов без Page-метаданных. Если нужны метаданные, возвращайте `Page<T>` из контроллера.
+
+## Поиск задач
+JPQL поиск: `GET /api/tasks/search`
+
+Обязательные параметры:
+- `projectId`
+- `tagName`
+
+Опциональные параметры:
+- `status`
+- `assignee`
+- `page`, `size`, `sort`
+
+Native поиск: `GET /api/tasks/overdue`
+
+Обязательные параметры:
+- `projectId`
+- `tagName`
+
+Опциональные параметры:
+- `status`
+- `assignee`
+- `dueBefore` (Instant в ISO-8601, по умолчанию текущее время)
+
+Фильтры:
+- задача связана с указанным тегом
+- `dueDate < dueBefore`
+- статус задачи не COMPLETED
+
+## Кэширование
+In-memory кэши построены на HashMap с составными ключами:
+- `TaskSearchCache` использует `TaskSearchKey` (projectId, tagName, status, assignee, dueBefore, page, size, sort, nativeQuery)
+- `PageKey` используется для постраничных списков пользователей, проектов и тегов
+- `CommentPageKey` добавляет taskId для комментариев конкретной задачи
+
+Кэши инвалидируются при create, update, patch, delete, а также при назначении/удалении тега у задачи.
+
+## Дефолты и валидация
+- В POST и PUT `/tasks` при null-статусе применяется TODO.
+- Валидация обеспечивается `@Valid` и аннотациями bean validation.

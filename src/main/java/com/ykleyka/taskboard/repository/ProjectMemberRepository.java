@@ -11,6 +11,10 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMember, Pr
     List<ProjectMember> findAllByProjectIdInAndRoleAndUserIdNot(
             Collection<Long> projectIds, ProjectRole role, Long userId);
 
+    List<ProjectMember> findAllByUserIdAndRole(Long userId, ProjectRole role);
+
+    boolean existsByProjectIdAndUserId(Long projectId, Long userId);
+
     void deleteAllByProjectId(Long projectId);
 
     void deleteAllByUserId(Long userId);

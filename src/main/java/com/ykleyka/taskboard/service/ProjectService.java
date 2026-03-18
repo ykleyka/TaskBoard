@@ -1,18 +1,24 @@
 package com.ykleyka.taskboard.service;
 
+import com.ykleyka.taskboard.cache.CommentCache;
 import com.ykleyka.taskboard.cache.ProjectCache;
 import com.ykleyka.taskboard.cache.TaskSearchCache;
 import com.ykleyka.taskboard.cache.PageKey;
+import com.ykleyka.taskboard.cache.TagCache;
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
+import com.ykleyka.taskboard.dto.ProjectMemberRequest;
 import com.ykleyka.taskboard.dto.ProjectPatchRequest;
 import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
+import com.ykleyka.taskboard.dto.ProjectUserSummaryResponse;
+import com.ykleyka.taskboard.exception.ProjectConflictException;
 import com.ykleyka.taskboard.exception.ProjectNotFoundException;
 import com.ykleyka.taskboard.exception.UserNotFoundException;
 import com.ykleyka.taskboard.mapper.ProjectMapper;
 import com.ykleyka.taskboard.model.Project;
 import com.ykleyka.taskboard.model.ProjectMember;
 import com.ykleyka.taskboard.model.ProjectMemberId;
+import com.ykleyka.taskboard.model.Task;
 import com.ykleyka.taskboard.model.User;
 import com.ykleyka.taskboard.model.enums.ProjectRole;
 import com.ykleyka.taskboard.repository.ProjectMemberRepository;
@@ -37,6 +43,8 @@ public class ProjectService {
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
     private final ProjectCache projectCache;
+    private final TagCache tagCache;
+    private final CommentCache commentCache;
     private final TaskSearchCache searchCache;
 
     public List<ProjectResponse> getProjects(Pageable pageable) {
@@ -108,13 +116,36 @@ public class ProjectService {
     }
 
     @Transactional
+    public ProjectUserSummaryResponse addMember(Long projectId, ProjectMemberRequest request) {
+        if (request.userId() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId is required");
+        }
+        Project project = findProject(projectId);
+        User user = findUser(request.userId());
+        if (projectMemberRepository.existsByProjectIdAndUserId(projectId, user.getId())) {
+            throw new ProjectConflictException(
+                    "User " + user.getId() + " is already a member of project " + projectId);
+        }
+        ProjectRole role = request.role() == null ? ProjectRole.MEMBER : request.role();
+        ProjectMember member = createMembership(project, user, role);
+        projectCache.invalidate();
+        searchCache.invalidate();
+        return new ProjectUserSummaryResponse(user.getId(), user.getUsername(), member.getRole());
+    }
+
+    @Transactional
     public ProjectResponse deleteProject(Long id) {
         Project project = findProject(id);
-        taskRepository.deleteAllByProjectId(id);
+        List<Task> tasks = taskRepository.findAllByProjectId(id);
+        for (Task task : tasks) {
+            taskRepository.delete(task);
+        }
         projectMemberRepository.deleteAllByProjectId(id);
         projectRepository.delete(project);
         ProjectResponse response = mapper.toResponse(project);
         projectCache.invalidate();
+        tagCache.invalidate();
+        commentCache.invalidate();
         searchCache.invalidate();
         return response;
     }
@@ -132,12 +163,16 @@ public class ProjectService {
     }
 
     private void createOwnerMembership(Project project, User owner) {
+        createMembership(project, owner, ProjectRole.OWNER);
+    }
+
+    private ProjectMember createMembership(Project project, User user, ProjectRole role) {
         ProjectMember member = new ProjectMember();
-        member.setId(new ProjectMemberId(project.getId(), owner.getId()));
+        member.setId(new ProjectMemberId(project.getId(), user.getId()));
         member.setProject(project);
-        member.setUser(owner);
-        member.setRole(ProjectRole.OWNER);
+        member.setUser(user);
+        member.setRole(role);
         member.setJoinedAt(Instant.now());
-        projectMemberRepository.save(member);
+        return projectMemberRepository.save(member);
     }
 }
