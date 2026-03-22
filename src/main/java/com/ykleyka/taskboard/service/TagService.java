@@ -1,8 +1,8 @@
 package com.ykleyka.taskboard.service;
 
 import com.ykleyka.taskboard.cache.TagCache;
-import com.ykleyka.taskboard.cache.TaskSearchCache;
 import com.ykleyka.taskboard.cache.PageKey;
+import com.ykleyka.taskboard.cache.TaskCache;
 import com.ykleyka.taskboard.dto.TagRequest;
 import com.ykleyka.taskboard.dto.TagResponse;
 import com.ykleyka.taskboard.exception.TagNotFoundException;
@@ -14,24 +14,31 @@ import com.ykleyka.taskboard.repository.TagRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import java.time.Instant;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class TagService {
     private final TagMapper mapper;
     private final TagRepository tagRepository;
     private final TaskRepository taskRepository;
     private final TagCache tagCache;
-    private final TaskSearchCache searchCache;
+    private final TaskCache taskCache;
 
     public List<TagResponse> getTags(Pageable pageable) {
         PageKey key = PageKey.from(pageable);
         List<TagResponse> cached = tagCache.getTags(key);
         if (cached != null) {
+            log.info(
+                    "Tags returned from cache: page={}, size={}, sort={}",
+                    key.getPage(),
+                    key.getSize(),
+                    key.getSort());
             return cached;
         }
         List<TagResponse> content =
@@ -51,7 +58,6 @@ public class TagService {
         Tag tag = mapper.toEntity(request);
         TagResponse response = mapper.toResponse(tagRepository.save(tag));
         tagCache.invalidate();
-        searchCache.invalidate();
         return response;
     }
 
@@ -67,7 +73,7 @@ public class TagService {
             task.setUpdatedAt(Instant.now());
             taskRepository.save(task);
             tagCache.invalidate();
-            searchCache.invalidate();
+            taskCache.invalidateTask(taskId);
         }
         return mapper.toResponse(tag);
     }
@@ -82,7 +88,7 @@ public class TagService {
             task.setUpdatedAt(Instant.now());
             taskRepository.save(task);
             tagCache.invalidate();
-            searchCache.invalidate();
+            taskCache.invalidateTask(taskId);
         }
         return mapper.toResponse(tag);
     }

@@ -2,9 +2,7 @@ package com.ykleyka.taskboard.service;
 
 import com.ykleyka.taskboard.cache.CommentCache;
 import com.ykleyka.taskboard.cache.ProjectCache;
-import com.ykleyka.taskboard.cache.TaskSearchCache;
-import com.ykleyka.taskboard.cache.UserCache;
-import com.ykleyka.taskboard.cache.PageKey;
+import com.ykleyka.taskboard.cache.TaskCache;
 import com.ykleyka.taskboard.dto.UserPatchRequest;
 import com.ykleyka.taskboard.exception.UserConflictException;
 import com.ykleyka.taskboard.exception.UserNotFoundException;
@@ -17,8 +15,8 @@ import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
-import java.util.HashSet;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -38,30 +36,16 @@ public class UserService {
     private final PasswordEncoder passwordEncoder;
     private final TaskRepository taskRepository;
     private final UserRepository userRepository;
-    private final UserCache userCache;
     private final ProjectCache projectCache;
     private final CommentCache commentCache;
-    private final TaskSearchCache searchCache;
+    private final TaskCache taskCache;
 
     public List<User> getUsers(Pageable pageable) {
-        PageKey key = PageKey.from(pageable);
-        List<User> cached = userCache.getUsers(key);
-        if (cached != null) {
-            return cached;
-        }
-        List<User> content = userRepository.findAll(pageable).getContent();
-        userCache.putUsers(key, content);
-        return content;
+        return userRepository.findAll(pageable).getContent();
     }
 
     public User getUserById(Long id) {
-        User cached = userCache.getUser(id);
-        if (cached != null) {
-            return cached;
-        }
-        User user = findUser(id);
-        userCache.putUser(id, user);
-        return user;
+        return findUser(id);
     }
 
     public User createUser(User user) {
@@ -70,10 +54,7 @@ public class UserService {
         Instant now = Instant.now();
         user.setCreatedAt(now);
         user.setUpdatedAt(now);
-        User saved = userRepository.save(user);
-        userCache.invalidate();
-        searchCache.invalidate();
-        return saved;
+        return userRepository.save(user);
     }
 
     public User updateUser(Long id, User request) {
@@ -88,10 +69,9 @@ public class UserService {
         user.setLastName(request.getLastName());
         user.setUpdatedAt(Instant.now());
         User saved = userRepository.save(user);
-        userCache.invalidate();
         commentCache.invalidate();
         projectCache.invalidate();
-        searchCache.invalidate();
+        taskCache.invalidate();
         return saved;
     }
 
@@ -121,10 +101,9 @@ public class UserService {
         }
         user.setUpdatedAt(Instant.now());
         User saved = userRepository.save(user);
-        userCache.invalidate();
         commentCache.invalidate();
         projectCache.invalidate();
-        searchCache.invalidate();
+        taskCache.invalidate();
         return saved;
     }
 
@@ -156,9 +135,8 @@ public class UserService {
         commentCache.invalidate();
         projectMemberRepository.deleteAllByUserId(id);
         userRepository.delete(user);
-        userCache.invalidate();
         projectCache.invalidate();
-        searchCache.invalidate();
+        taskCache.invalidate();
         return user;
     }
 
@@ -199,7 +177,8 @@ public class UserService {
         return passwordEncoder.encode(rawPassword);
     }
 
-    private Map<Long, User> loadReplacementOwnersByProjectId(List<Task> affectedTasks, Long deletedUserId) {
+    private Map<Long, User> loadReplacementOwnersByProjectId(
+            List<Task> affectedTasks, Long deletedUserId) {
         Set<Long> projectIds = new HashSet<>();
         List<ProjectMember> ownedProjects =
                 projectMemberRepository.findAllByUserIdAndRole(deletedUserId, ProjectRole.OWNER);

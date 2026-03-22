@@ -1,129 +1,321 @@
 # TaskBoard
 
-TaskBoard — это REST API на Spring Boot для управления проектами, задачами, тегами, комментариями и пользователями.
+TaskBoard — это REST API на Spring Boot для управления пользователями, проектами, задачами, тегами и комментариями.
+
+## Проверка SonarQube Cloud 
+
+[Ссылка на Sonar](https://sonarcloud.io/summary/new_code?id=ykleyka_TaskBoard&branch=master)
 
 ## Возможности
-- CRUD для пользователей, проектов, задач, тегов и комментариев
-- Поиск задач по вложенным сущностям (проект + теги) через JPQL
+
+- CRUD-операции для пользователей, проектов, задач, тегов и комментариев
+- Добавление участников проекта с ролями
+- Поиск задач по проекту и тегу через JPQL
 - Поиск просроченных задач через native SQL
-- Пагинация и сортировка для списков (Pageable)
-- In-memory кэши на HashMap для часто запрашиваемых списков и поисков с инвалидацией при изменениях
+- Валидация входных данных через Bean Validation
+- Глобальная обработка ошибок с единым форматом ответа
+- Swagger / OpenAPI-документация
+- Логирование через Logback с ротацией файлов
+- AOP-логирование времени выполнения сервисных методов
+- In-memory кэширование на основе `HashMap`
+
 ## Технологии
+
 - Java 21
-- Spring Boot 4.0.2, Spring Web, Spring Data JPA, Validation
+- Spring Boot 4.0.2
+- Spring Web
+- Spring Data JPA
+- Spring Validation
+- Spring AOP
 - PostgreSQL
 - Lombok
+- Springdoc OpenAPI
 
-## Установка
-1. Установите Java 21 и Maven.
-2. Запустите PostgreSQL и выберите базу данных.
-3. Настройте доступ к базе в `src/main/resources/application.properties`.
-4. Опционально создайте `.env` в корне проекта:
+## Структура проекта
+
+- `controller` — REST-контроллеры
+- `service` — бизнес-логика
+- `repository` — слой доступа к данным
+- `dto` — request/response модели
+- `mapper` — преобразование entity <-> DTO
+- `exception` — пользовательские исключения и глобальный обработчик ошибок
+- `cache` — in-memory индексы на `HashMap`
+- `aop` — аспект логирования времени выполнения
+- `config` — конфигурация OpenAPI и приложения
+
+## Реализованные требования
+
+В проекте реализованы:
+
+- глобальная обработка ошибок через `@RestControllerAdvice`
+- валидация входных данных через `@Valid`, `@Validated` и аннотации Bean Validation
+- единый формат ошибки для всех endpoint
+- логирование через Logback с уровнями и ротацией
+- аспект для логирования времени выполнения сервисных методов
+- Swagger / OpenAPI с описанием endpoint и DTO
+- in-memory кэширование с составными ключами и корректными `equals()` / `hashCode()`
+
+## Конфигурация
+
+Основные настройки находятся в:
+
+- `src/main/resources/application.properties`
+
+Проект поддерживает загрузку переменных из `.env` в корне:
 
 ```properties
 DB_PASSWORD=your_password
 ```
 
-Файл `.env` подхватывается через `spring.config.import=optional:file:./.env[.properties]`.
+Актуальные настройки БД:
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/postgres
+spring.datasource.username=postgres
+spring.datasource.password=${DB_PASSWORD}
+```
 
 ## Запуск
+
+Через Maven:
+
 ```bash
 mvn spring-boot:run
 ```
 
-Или:
+Через Maven Wrapper:
 
 ```bash
 ./mvnw spring-boot:run
 ```
 
-## API
-Базовый путь: `/api`
+## Swagger / OpenAPI
 
-Пользователи:
-- GET `/users`
-- GET `/users/{id}`
-- POST `/users`
-- PUT `/users/{id}`
-- PATCH `/users/{id}`
-- DELETE `/users/{id}`
+После запуска приложения документация доступна по адресам:
 
-Проекты:
-- GET `/projects`
-- GET `/projects/{id}`
-- POST `/projects`
-- POST `/projects/{id}/members`
-- PUT `/projects/{id}`
-- PATCH `/projects/{id}`
-- DELETE `/projects/{id}`
+- `http://localhost:8080/swagger-ui.html`
+- `http://localhost:8080/swagger-ui/index.html`
 
-Задачи:
-- GET `/tasks`
-- GET `/tasks/{id}`
-- POST `/tasks`
-- PUT `/tasks/{id}`
-- PATCH `/tasks/{id}`
-- DELETE `/tasks/{id}`
-- GET `/tasks/search` (JPQL)
-- GET `/tasks/overdue` (native SQL)
+OpenAPI JSON:
 
-Теги:
-- GET `/tags`
-- POST `/tags`
-- POST `/tasks/{taskId}/tags/{tagId}`
-- DELETE `/tasks/{taskId}/tags/{tagId}`
+- `http://localhost:8080/v3/api-docs`
 
-Комментарии:
-- GET `/tasks/{taskId}/comments`
-- POST `/tasks/{taskId}/comments`
-- PUT `/comments/{id}`
-- DELETE `/comments/{id}`
+## Логирование
+
+Конфигурация Logback находится в:
+
+- `src/main/resources/logback-spring.xml`
+
+Настроено:
+
+- логирование в консоль
+- логирование в файл `logs/taskboard.log`
+- архивирование логов в `logs/archive`
+- ротация по дате и размеру
+- хранение архивов 30 дней
+
+Дополнительно:
+
+- SQL-логи через `spring.jpa.show-sql` отключены
+- время выполнения сервисных методов логируется через AOP
+
+Пример записи:
+
+```text
+Executed TaskService.searchTasksByProjectIdAndTag(..) in 31 ms
+```
+
+## Валидация и обработка ошибок
+
+Валидация применяется к:
+
+- request body DTO
+- `@PathVariable`
+- `@RequestParam`
+
+В проекте используется единый формат ошибки со следующими полями:
+
+- `timestamp`
+- `status`
+- `error`
+- `message`
+- `path`
+- `errors`
+
+Ошибки валидации возвращаются в виде списка полей с сообщениями и rejected value.
+
+## In-Memory Кэширование
+
+Кэширование реализовано вручную на основе `HashMap`, как того требуют условия.
+
+Используемые кэши:
+
+- `ProjectCache`
+- `TaskCache`
+- `TagCache`
+- `CommentCache`
+
+Составные ключи:
+
+- `PageKey` — для постраничных списков
+- `CommentPageKey` — для комментариев конкретной задачи
+- `TaskQueryKey` — для списков и поисковых запросов по задачам
+
+Ключи включают параметры запроса, например:
+
+- тип запроса
+- `projectId`
+- `tagName`
+- `status`
+- `assignee`
+- фильтр по дате
+- `page`
+- `size`
+- `sort`
+
+Корректная работа кэша обеспечивается через `equals()` и `hashCode()`, сгенерированные Lombok `@EqualsAndHashCode`.
+
+### Что кэшируется
+
+- списки проектов
+- детали проекта
+- списки тегов
+- детали задачи
+- списки и результаты поиска задач
+- комментарии задачи
+
+### Инвалидация кэша
+
+Кэш очищается при изменении связанных данных:
+
+- создание, обновление, patch и удаление задач
+- создание, обновление, patch и удаление проектов
+- назначение и удаление тегов у задач
+- создание, обновление и удаление комментариев
+- обновление и удаление пользователей, если это влияет на связанные проекты, задачи и комментарии
+
+## Обзор API
+
+Базовый путь:
+
+```text
+/api
+```
+
+### Пользователи
+
+- `GET /api/users`
+- `GET /api/users/{id}`
+- `POST /api/users`
+- `PUT /api/users/{id}`
+- `PATCH /api/users/{id}`
+- `DELETE /api/users/{id}`
+
+### Проекты
+
+- `GET /api/projects`
+- `GET /api/projects/{id}`
+- `POST /api/projects`
+- `POST /api/projects/{id}/members`
+- `PUT /api/projects/{id}`
+- `PATCH /api/projects/{id}`
+- `DELETE /api/projects/{id}`
+
+### Задачи
+
+- `GET /api/tasks`
+- `GET /api/tasks/{id}`
+- `POST /api/tasks`
+- `PUT /api/tasks/{id}`
+- `PATCH /api/tasks/{id}`
+- `DELETE /api/tasks/{id}`
+- `GET /api/tasks/search`
+- `GET /api/tasks/overdue`
+
+### Теги
+
+- `GET /api/tags`
+- `POST /api/tags`
+- `POST /api/tasks/{taskId}/tags/{tagId}`
+- `DELETE /api/tasks/{taskId}/tags/{tagId}`
+
+### Комментарии
+
+- `GET /api/tasks/{taskId}/comments`
+- `POST /api/tasks/{taskId}/comments`
+- `PUT /api/comments/{id}`
+- `DELETE /api/comments/{id}`
 
 ## Пагинация и сортировка
-Все списоковые эндпоинты принимают стандартные параметры Spring Data:
-- `page` (с 0), `size`, `sort` (например `sort=dueDate,desc`)
 
-По умолчанию:
-- `page=0`, `size=20`
+Обычные списочные endpoint поддерживают стандартные параметры Spring `Pageable`:
 
-Важно: контроллеры возвращают только список элементов без Page-метаданных. Если нужны метаданные, возвращайте `Page<T>` из контроллера.
+- `page`
+- `size`
+- `sort`
+
+Значения по умолчанию:
+
+- `page=0`
+- `size=20`
+
+Поисковые endpoint упрощены:
+
+- `GET /api/tasks/search` принимает только `page` и `size`, а сортировка фиксируется в сервисе
+- `GET /api/tasks/overdue` принимает только `page` и `size`, а сортировка фиксируется в сервисе
+
+Фиксированный порядок сортировки:
+
+- поиск задач по проекту и тегу: `id ASC`
+- поиск просроченных задач: `due_date ASC, id ASC`
 
 ## Поиск задач
-JPQL поиск: `GET /api/tasks/search`
+
+### `GET /api/tasks/search`
 
 Обязательные параметры:
+
 - `projectId`
 - `tagName`
 
-Опциональные параметры:
+Необязательные параметры:
+
 - `status`
 - `assignee`
-- `page`, `size`, `sort`
+- `page`
+- `size`
 
-Native поиск: `GET /api/tasks/overdue`
+### `GET /api/tasks/overdue`
 
 Обязательные параметры:
+
 - `projectId`
 - `tagName`
 
-Опциональные параметры:
+Необязательные параметры:
+
 - `status`
 - `assignee`
-- `dueBefore` (Instant в ISO-8601, по умолчанию текущее время)
+- `dueBefore`
+- `page`
+- `size`
 
-Фильтры:
-- задача связана с указанным тегом
+Дополнительные условия для overdue-поиска:
+
+- у задачи должен быть `dueDate`
 - `dueDate < dueBefore`
-- статус задачи не COMPLETED
+- статус задачи не должен быть `COMPLETED`
 
-## Кэширование
-In-memory кэши построены на HashMap с составными ключами:
-- `TaskSearchCache` использует `TaskSearchKey` (projectId, tagName, status, assignee, dueBefore, page, size, sort, nativeQuery)
-- `PageKey` используется для постраничных списков пользователей, проектов и тегов
-- `CommentPageKey` добавляет taskId для комментариев конкретной задачи
+## Сборка
 
-Кэши инвалидируются при create, update, patch, delete, а также при назначении/удалении тега у задачи.
+Компиляция:
 
-## Дефолты и валидация
-- В POST и PUT `/tasks` при null-статусе применяется TODO.
-- Валидация обеспечивается `@Valid` и аннотациями bean validation.
+```bash
+mvn compile
+```
+
+Запуск тестов:
+
+```bash
+mvn test
+```
