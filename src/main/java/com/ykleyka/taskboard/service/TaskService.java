@@ -3,8 +3,9 @@ package com.ykleyka.taskboard.service;
 import com.ykleyka.taskboard.cache.CommentCache;
 import com.ykleyka.taskboard.cache.ProjectCache;
 import com.ykleyka.taskboard.cache.TagCache;
-import com.ykleyka.taskboard.cache.TaskSearchCache;
-import com.ykleyka.taskboard.cache.TaskSearchCache.TaskSearchKey;
+import com.ykleyka.taskboard.cache.TaskCache;
+import com.ykleyka.taskboard.cache.TaskCache.TaskQueryKey;
+import com.ykleyka.taskboard.cache.TaskCache.TaskQueryType;
 import com.ykleyka.taskboard.dto.TaskDetailsResponse;
 import com.ykleyka.taskboard.dto.TaskPatchRequest;
 import com.ykleyka.taskboard.dto.TaskRequest;
@@ -25,6 +26,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.Supplier;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -36,8 +38,13 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class TaskService {
+    private static final Sort SEARCH_TASKS_SORT = Sort.by(Sort.Order.asc("id"));
+    private static final Sort OVERDUE_TASKS_SORT =
+            Sort.by(Sort.Order.asc("due_date"), Sort.Order.asc("id"));
+
     private final TaskMapper mapper;
     private final TaskRepository repository;
     private final UserRepository userRepository;
@@ -46,29 +53,49 @@ public class TaskService {
     private final ProjectCache projectCache;
     private final TagCache tagCache;
     private final CommentCache commentCache;
-    private final TaskSearchCache searchCache;
+    private final TaskCache taskCache;
 
     public List<TaskResponse> getTasks(
             Status status,
             String assignee,
             Pageable pageable) {
-        Page<Task> tasks;
-        if (status != null && assignee != null && !assignee.isBlank()) {
-            tasks =
-                    repository.findAllByStatusAndAssigneeUsernameIgnoreCase(
-                            status, assignee, pageable);
-        } else if (status != null) {
-            tasks = repository.findAllByStatus(status, pageable);
-        } else if (assignee != null && !assignee.isBlank()) {
-            tasks = repository.findAllByAssigneeUsernameIgnoreCase(assignee, pageable);
-        } else {
-            tasks = repository.findAll(pageable);
-        }
-        return tasks.map(mapper::toResponse).getContent();
+        String normalizedAssignee = normalizeAssigneeValue(assignee);
+        TaskQueryKey key =
+                TaskQueryKey.from(
+                        TaskQueryType.LIST,
+                        null,
+                        null,
+                        status,
+                        normalizedAssignee,
+                        null,
+                        pageable);
+        return getCachedTasks(
+                key,
+                () -> {
+                    if (status != null && normalizedAssignee != null) {
+                        return repository.findAllByStatusAndAssigneeUsernameIgnoreCase(
+                                status, normalizedAssignee, pageable);
+                    }
+                    if (status != null) {
+                        return repository.findAllByStatus(status, pageable);
+                    }
+                    if (normalizedAssignee != null) {
+                        return repository.findAllByAssigneeUsernameIgnoreCase(
+                                normalizedAssignee, pageable);
+                    }
+                    return repository.findAll(pageable);
+                });
     }
 
     public TaskDetailsResponse getTaskById(Long id) {
-        return mapper.toDetailsResponse(findDetailedTask(id));
+        TaskDetailsResponse cached = taskCache.getTaskDetails(id);
+        if (cached != null) {
+            log.info("Task {} details returned from cache", id);
+            return cached;
+        }
+        TaskDetailsResponse response = mapper.toDetailsResponse(findDetailedTask(id));
+        taskCache.putTaskDetails(id, response);
+        return response;
     }
 
     private Task findTask(Long id) {
@@ -99,7 +126,7 @@ public class TaskService {
         TaskResponse response = mapper.toResponse(repository.save(task));
         projectCache.invalidate();
         tagCache.invalidate();
-        invalidateSearchCache();
+        taskCache.invalidateQueries();
         return response;
     }
 
@@ -107,8 +134,8 @@ public class TaskService {
     public TaskResponse updateTask(Long id, TaskRequest request) {
         Task task = findTask(id);
         Project project = findProject(request.projectId());
+        User creator = request.creatorId() == null ? task.getCreator() : findUser(request.creatorId());
         User assignee = request.assigneeId() == null ? null : findUser(request.assigneeId());
-        User creator = task.getCreator();
         if (creator != null) {
             ensureProjectMember(project.getId(), creator.getId());
         }
@@ -116,10 +143,9 @@ public class TaskService {
             ensureProjectMember(project.getId(), assignee.getId());
         }
 
-        Status effectiveStatus = request.status() == null ? task.getStatus() : request.status();
         task.setTitle(request.title());
         task.setDescription(request.description());
-        task.setStatus(effectiveStatus == null ? Status.TODO : effectiveStatus);
+        task.setStatus(request.status() == null ? Status.TODO : request.status());
         task.setPriority(request.priority());
         task.setProject(project);
         task.setCreator(creator);
@@ -130,7 +156,7 @@ public class TaskService {
         TaskResponse response = mapper.toResponse(repository.save(task));
         projectCache.invalidate();
         tagCache.invalidate();
-        invalidateSearchCache();
+        taskCache.invalidateTask(id);
         return response;
     }
 
@@ -176,7 +202,7 @@ public class TaskService {
         TaskResponse response = mapper.toResponse(repository.save(task));
         projectCache.invalidate();
         tagCache.invalidate();
-        invalidateSearchCache();
+        taskCache.invalidateTask(id);
         return response;
     }
 
@@ -187,7 +213,7 @@ public class TaskService {
         projectCache.invalidate();
         tagCache.invalidate();
         commentCache.invalidateTask(id);
-        invalidateSearchCache();
+        taskCache.invalidateTask(id);
         return response;
     }
 
@@ -196,17 +222,29 @@ public class TaskService {
             String tagName,
             Status status,
             String assignee,
-            Pageable pageable) {
+            int page,
+            int size) {
         String normalizedTagName = normalizeTagName(tagName);
         String assigneePattern = normalizeAssigneePattern(assignee);
-        TaskSearchKey key =
-                TaskSearchKey.from(
-                        projectId, normalizedTagName, status, assigneePattern, null, pageable, false);
-        return getCachedSearch(
+        Pageable pageable = PageRequest.of(page, size, SEARCH_TASKS_SORT);
+        TaskQueryKey key =
+                TaskQueryKey.from(
+                        TaskQueryType.SEARCH,
+                        projectId,
+                        normalizedTagName,
+                        status,
+                        assigneePattern,
+                        null,
+                        pageable);
+        return getCachedTasks(
                 key,
                 () ->
                         repository.searchByProjectIdAndTag(
-                                projectId, normalizedTagName, status, assigneePattern, pageable));
+                                projectId,
+                                normalizedTagName,
+                                status,
+                                assigneePattern,
+                                pageable));
     }
 
     public List<TaskResponse> searchOverdueTasksByProjectIdAndTagNative(
@@ -215,11 +253,12 @@ public class TaskService {
             Status status,
             String assignee,
             Instant dueBefore,
-            Pageable pageable) {
+            int page,
+            int size) {
         String normalizedTagName = normalizeTagName(tagName);
         String statusValue = normalizeStatusValue(status);
         String assigneePattern = normalizeAssigneePattern(assignee);
-        Pageable nativePageable = normalizeNativePageable(pageable);
+        Pageable nativePageable = PageRequest.of(page, size, OVERDUE_TASKS_SORT);
         Instant effectiveDueBefore = dueBefore == null ? Instant.now() : dueBefore;
         Supplier<Page<Task>> loader =
                 () ->
@@ -233,26 +272,38 @@ public class TaskService {
         if (dueBefore == null) {
             return toTaskResponses(loader.get());
         }
-        TaskSearchKey key =
-                TaskSearchKey.from(
+        TaskQueryKey key =
+                TaskQueryKey.from(
+                        TaskQueryType.OVERDUE,
                         projectId,
                         normalizedTagName,
                         status,
                         assigneePattern,
                         effectiveDueBefore,
-                        nativePageable,
-                        true);
-        return getCachedSearch(key, loader);
+                        nativePageable);
+        return getCachedTasks(key, loader);
     }
 
-    private List<TaskResponse> getCachedSearch(
-            TaskSearchKey key, Supplier<Page<Task>> loader) {
-        List<TaskResponse> cached = searchCache.get(key);
+    private List<TaskResponse> getCachedTasks(
+            TaskQueryKey key, Supplier<Page<Task>> loader) {
+        List<TaskResponse> cached = taskCache.getQuery(key);
         if (cached != null) {
+            log.info(
+                    "Task query returned from cache: type={}, projectId={}, tagName={}, status={}, " +
+                            "assignee={}, dueBefore={}, page={}, size={}, sort={}",
+                    key.getQueryType(),
+                    key.getProjectId(),
+                    key.getTagName(),
+                    key.getStatus(),
+                    key.getAssignee(),
+                    key.getDueBefore(),
+                    key.getPage(),
+                    key.getSize(),
+                    key.getSort());
             return refreshOverdueFlags(cached);
         }
         List<TaskResponse> content = toTaskResponses(loader.get());
-        searchCache.put(key, content);
+        taskCache.putQuery(key, content);
         return refreshOverdueFlags(content);
     }
 
@@ -290,59 +341,27 @@ public class TaskService {
                 response.updatedAt());
     }
 
-    private void invalidateSearchCache() {
-        searchCache.invalidate();
-    }
-
     private String normalizeTagName(String tagName) {
         return tagName == null ? null : tagName.strip().toLowerCase(Locale.ROOT);
     }
 
-    private String normalizeAssigneePattern(String assignee) {
+    private String normalizeAssigneeValue(String assignee) {
         if (assignee == null || assignee.isBlank()) {
             return null;
         }
-        return "%" + assignee.strip().toLowerCase(Locale.ROOT) + "%";
+        return assignee.strip().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizeAssigneePattern(String assignee) {
+        String normalizedAssignee = normalizeAssigneeValue(assignee);
+        if (normalizedAssignee == null) {
+            return null;
+        }
+        return "%" + normalizedAssignee + "%";
     }
 
     private String normalizeStatusValue(Status status) {
         return status == null ? null : status.name();
-    }
-
-    private Pageable normalizeNativePageable(Pageable pageable) {
-        if (pageable == null || pageable.isUnpaged()) {
-            return pageable;
-        }
-        if (pageable.getSort().isUnsorted()) {
-            return pageable;
-        }
-        Sort normalizedSort = Sort.by(
-                pageable.getSort().stream()
-                        .map(this::normalizeNativeOrder)
-                        .toList());
-        return PageRequest.of(pageable.getPageNumber(), pageable.getPageSize(), normalizedSort);
-    }
-
-    private Sort.Order normalizeNativeOrder(Sort.Order order) {
-        String column = switch (order.getProperty()) {
-            case "dueDate" -> "due_date";
-            case "createdAt" -> "created_at";
-            case "updatedAt" -> "updated_at";
-            case "projectId" -> "project_id";
-            case "creatorId" -> "creator_id";
-            case "assigneeId" -> "assignee_id";
-            case "assigneeUsername" -> "a.username";
-            default -> order.getProperty();
-        };
-        Sort.Order normalized = new Sort.Order(order.getDirection(), column);
-        if (order.isIgnoreCase()) {
-            normalized = normalized.ignoreCase();
-        }
-        return switch (order.getNullHandling()) {
-            case NULLS_FIRST -> normalized.nullsFirst();
-            case NULLS_LAST -> normalized.nullsLast();
-            default -> normalized;
-        };
     }
 
     private User findUser(Long id) {

@@ -2,9 +2,9 @@ package com.ykleyka.taskboard.service;
 
 import com.ykleyka.taskboard.cache.CommentCache;
 import com.ykleyka.taskboard.cache.ProjectCache;
-import com.ykleyka.taskboard.cache.TaskSearchCache;
 import com.ykleyka.taskboard.cache.PageKey;
 import com.ykleyka.taskboard.cache.TagCache;
+import com.ykleyka.taskboard.cache.TaskCache;
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
 import com.ykleyka.taskboard.dto.ProjectMemberRequest;
 import com.ykleyka.taskboard.dto.ProjectPatchRequest;
@@ -27,6 +27,7 @@ import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -35,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class ProjectService {
     private final ProjectMapper mapper;
@@ -45,12 +47,17 @@ public class ProjectService {
     private final ProjectCache projectCache;
     private final TagCache tagCache;
     private final CommentCache commentCache;
-    private final TaskSearchCache searchCache;
+    private final TaskCache taskCache;
 
     public List<ProjectResponse> getProjects(Pageable pageable) {
         PageKey key = PageKey.from(pageable);
         List<ProjectResponse> cached = projectCache.getProjects(key);
         if (cached != null) {
+            log.info(
+                    "Projects returned from cache: page={}, size={}, sort={}",
+                    key.getPage(),
+                    key.getSize(),
+                    key.getSort());
             return cached;
         }
         List<ProjectResponse> content =
@@ -62,6 +69,7 @@ public class ProjectService {
     public ProjectDetailsResponse getProjectById(Long id) {
         ProjectDetailsResponse cached = projectCache.getProjectDetails(id);
         if (cached != null) {
+            log.info("Project {} details returned from cache", id);
             return cached;
         }
         ProjectDetailsResponse response = mapper.toDetailsResponse(findDetailedProject(id));
@@ -80,7 +88,6 @@ public class ProjectService {
         createOwnerMembership(savedProject, owner);
         ProjectResponse response = mapper.toResponse(savedProject);
         projectCache.invalidate();
-        searchCache.invalidate();
         return response;
     }
 
@@ -91,7 +98,7 @@ public class ProjectService {
         project.setUpdatedAt(Instant.now());
         ProjectResponse response = mapper.toResponse(projectRepository.save(project));
         projectCache.invalidate();
-        searchCache.invalidate();
+        taskCache.invalidate();
         return response;
     }
 
@@ -110,7 +117,7 @@ public class ProjectService {
             project.setUpdatedAt(Instant.now());
             projectRepository.save(project);
             projectCache.invalidate();
-            searchCache.invalidate();
+            taskCache.invalidate();
         }
         return mapper.toResponse(project);
     }
@@ -129,7 +136,6 @@ public class ProjectService {
         ProjectRole role = request.role() == null ? ProjectRole.MEMBER : request.role();
         ProjectMember member = createMembership(project, user, role);
         projectCache.invalidate();
-        searchCache.invalidate();
         return new ProjectUserSummaryResponse(user.getId(), user.getUsername(), member.getRole());
     }
 
@@ -146,7 +152,7 @@ public class ProjectService {
         projectCache.invalidate();
         tagCache.invalidate();
         commentCache.invalidate();
-        searchCache.invalidate();
+        taskCache.invalidate();
         return response;
     }
 

@@ -1,5 +1,4 @@
 package com.ykleyka.taskboard.controller;
-
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
 import com.ykleyka.taskboard.dto.ProjectMemberRequest;
 import com.ykleyka.taskboard.dto.ProjectPatchRequest;
@@ -7,11 +6,18 @@ import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
 import com.ykleyka.taskboard.dto.ProjectUserSummaryResponse;
 import com.ykleyka.taskboard.service.ProjectService;
+import com.ykleyka.taskboard.validation.OnCreate;
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Positive;
+import jakarta.validation.groups.Default;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
+import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -23,47 +29,59 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
+@Validated
 @RequestMapping("api/projects")
 @RequiredArgsConstructor
+@Tag(name = "Projects", description = "Operations for managing projects and project members")
 public class ProjectController {
     private final ProjectService service;
 
+    @Operation(summary = "List projects", description = "Returns a paginated list of projects.")
     @GetMapping
     public List<ProjectResponse> getProjects(
-            @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
+            @ParameterObject @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
         return service.getProjects(pageable);
     }
 
+    @Operation(summary = "Get project by id", description = "Returns detailed project information.")
     @GetMapping("/{id}")
-    public ProjectDetailsResponse getProjectById(@PathVariable Long id) {
+    public ProjectDetailsResponse getProjectById(@PathVariable @Positive Long id) {
         return service.getProjectById(id);
     }
 
+    @Operation(summary = "Create project", description = "Creates a new project.")
     @PostMapping
-    public ProjectResponse createProject(@Valid @RequestBody ProjectRequest request) {
+    public ProjectResponse createProject(
+            @Validated({Default.class, OnCreate.class}) @RequestBody ProjectRequest request) {
         return service.createProject(request);
     }
 
+    @Operation(summary = "Add project member", description = "Adds a user to the specified project.")
     @PostMapping("/{id}/members")
     public ProjectUserSummaryResponse addMember(
-            @PathVariable Long id, @Valid @RequestBody ProjectMemberRequest request) {
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody ProjectMemberRequest request) {
         return service.addMember(id, request);
     }
 
+    @Operation(summary = "Replace project", description = "Fully updates an existing project.")
     @PutMapping("/{id}")
     public ProjectResponse updateProject(
-            @PathVariable Long id, @Valid @RequestBody ProjectRequest request) {
+            @PathVariable @Positive Long id, @Valid @RequestBody ProjectRequest request) {
         return service.updateProject(id, request);
     }
 
+    @Operation(summary = "Patch project", description = "Partially updates an existing project.")
     @PatchMapping("/{id}")
     public ProjectResponse patchProject(
-            @PathVariable Long id, @Valid @RequestBody ProjectPatchRequest request) {
+            @PathVariable @Positive Long id,
+            @Valid @RequestBody ProjectPatchRequest request) {
         return service.patchProject(id, request);
     }
 
+    @Operation(summary = "Delete project", description = "Deletes a project and returns the removed entity.")
     @DeleteMapping("/{id}")
-    public ProjectResponse deleteProject(@PathVariable Long id) {
+    public ProjectResponse deleteProject(@PathVariable @Positive Long id) {
         return service.deleteProject(id);
     }
 }

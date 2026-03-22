@@ -34,7 +34,8 @@ checkstyle-debug.log
 *.iws
 *.iml
 *.ipr
-diagram.puml
+diagram.*
+/logs/
 
 ### NetBeans ###
 /nbproject/private/
