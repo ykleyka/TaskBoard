@@ -1,6 +1,7 @@
 package com.ykleyka.taskboard.controller;
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
 import com.ykleyka.taskboard.dto.ProjectMemberRequest;
+import com.ykleyka.taskboard.dto.ProjectMemberRoleRequest;
 import com.ykleyka.taskboard.dto.ProjectPatchRequest;
 import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
@@ -10,6 +11,7 @@ import com.ykleyka.taskboard.validation.OnCreate;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotEmpty;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.groups.Default;
 import java.util.List;
@@ -49,6 +51,20 @@ public class ProjectController {
         return service.getProjectById(id);
     }
 
+    @Operation(summary = "List project members", description = "Returns members of the specified project.")
+    @GetMapping("/{id}/members")
+    public List<ProjectUserSummaryResponse> getProjectMembers(@PathVariable @Positive Long id) {
+        return service.getProjectMembers(id);
+    }
+
+    @Operation(summary = "Get project member", description = "Returns project member by user id.")
+    @GetMapping("/{id}/members/{userId}")
+    public ProjectUserSummaryResponse getProjectMember(
+            @PathVariable @Positive Long id,
+            @PathVariable @Positive Long userId) {
+        return service.getProjectMember(id, userId);
+    }
+
     @Operation(summary = "Create project", description = "Creates a new project.")
     @PostMapping
     public ProjectResponse createProject(
@@ -64,6 +80,27 @@ public class ProjectController {
         return service.addMember(id, request);
     }
 
+    @Operation(summary = "Update project member", description = "Updates role of the project member.")
+    @PutMapping("/{id}/members/{userId}")
+    public ProjectUserSummaryResponse updateProjectMember(
+            @PathVariable @Positive Long id,
+            @PathVariable @Positive Long userId,
+            @Valid @RequestBody ProjectMemberRoleRequest request) {
+        return service.updateProjectMember(id, userId, request);
+    }
+
+    @Operation(
+            summary = "Bulk add project members",
+            description =
+                    "Adds multiple users to the specified project in a single transaction. "
+                            + "If one element fails, all changes are rolled back.")
+    @PostMapping("/{id}/members/bulk")
+    public List<ProjectUserSummaryResponse> addMembersBulk(
+            @PathVariable @Positive Long id,
+            @RequestBody @NotEmpty List<@Valid ProjectMemberRequest> requests) {
+        return service.addMembersBulk(id, requests);
+    }
+
     @Operation(summary = "Replace project", description = "Fully updates an existing project.")
     @PutMapping("/{id}")
     public ProjectResponse updateProject(
@@ -77,6 +114,14 @@ public class ProjectController {
             @PathVariable @Positive Long id,
             @Valid @RequestBody ProjectPatchRequest request) {
         return service.patchProject(id, request);
+    }
+
+    @Operation(summary = "Delete project member", description = "Removes a user from the specified project.")
+    @DeleteMapping("/{id}/members/{userId}")
+    public ProjectUserSummaryResponse deleteProjectMember(
+            @PathVariable @Positive Long id,
+            @PathVariable @Positive Long userId) {
+        return service.deleteProjectMember(id, userId);
     }
 
     @Operation(summary = "Delete project", description = "Deletes a project and returns the removed entity.")

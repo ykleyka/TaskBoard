@@ -14,7 +14,10 @@ public record UserPatchRequest(
                 @Pattern(regexp = "^\\s*\\S.*$", message = "email must not be blank")
                 @Email
                 String email,
-        @Schema(description = "User password", example = "StrongPass123!", writeOnly = true)
+        @Schema(
+                        description = "User password",
+                        example = "StrongPass123!",
+                        accessMode = Schema.AccessMode.WRITE_ONLY)
                 @Pattern(regexp = "^\\s*\\S.*$", message = "password must not be blank")
                 @JsonAlias("passwordHash")
                 String password,

@@ -8,6 +8,8 @@ import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface ProjectMemberRepository extends JpaRepository<ProjectMember, ProjectMemberId> {
+    List<ProjectMember> findAllByProjectId(Long projectId);
+
     List<ProjectMember> findAllByProjectIdInAndRoleAndUserIdNot(
             Collection<Long> projectIds, ProjectRole role, Long userId);
 

@@ -1,12 +1,13 @@
 package com.ykleyka.taskboard.service;
 
 import com.ykleyka.taskboard.cache.CommentCache;
-import com.ykleyka.taskboard.cache.ProjectCache;
 import com.ykleyka.taskboard.cache.PageKey;
+import com.ykleyka.taskboard.cache.ProjectCache;
 import com.ykleyka.taskboard.cache.TagCache;
 import com.ykleyka.taskboard.cache.TaskCache;
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
 import com.ykleyka.taskboard.dto.ProjectMemberRequest;
+import com.ykleyka.taskboard.dto.ProjectMemberRoleRequest;
 import com.ykleyka.taskboard.dto.ProjectPatchRequest;
 import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
@@ -26,9 +27,15 @@ import com.ykleyka.taskboard.repository.ProjectRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
+import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
-import lombok.extern.slf4j.Slf4j;
+import java.util.Map.Entry;
+import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -75,6 +82,40 @@ public class ProjectService {
         ProjectDetailsResponse response = mapper.toDetailsResponse(findDetailedProject(id));
         projectCache.putProjectDetails(id, response);
         return response;
+    }
+
+    public List<ProjectUserSummaryResponse> getProjectMembers(Long id) {
+        findProject(id);
+        return projectMemberRepository.findAllByProjectId(id).stream()
+                .map(this::toProjectUserSummary)
+                .sorted(Comparator.comparing(ProjectUserSummaryResponse::id))
+                .toList();
+    }
+
+    public ProjectUserSummaryResponse getProjectMember(Long projectId, Long userId) {
+        findProject(projectId);
+        return toProjectUserSummary(findProjectMember(projectId, userId));
+    }
+
+    @Transactional
+    public ProjectUserSummaryResponse updateProjectMember(
+            Long projectId, Long userId, ProjectMemberRoleRequest request) {
+        findProject(projectId);
+        ProjectMember member = findProjectMember(projectId, userId);
+        member.setRole(request.role());
+        ProjectMember saved = projectMemberRepository.save(member);
+        projectCache.invalidate();
+        return toProjectUserSummary(saved);
+    }
+
+    @Transactional
+    public ProjectUserSummaryResponse deleteProjectMember(Long projectId, Long userId) {
+        findProject(projectId);
+        ProjectMember member = findProjectMember(projectId, userId);
+        projectMemberRepository.delete(member);
+        projectCache.invalidate();
+        taskCache.invalidate();
+        return toProjectUserSummary(member);
     }
 
     @Transactional
@@ -124,19 +165,21 @@ public class ProjectService {
 
     @Transactional
     public ProjectUserSummaryResponse addMember(Long projectId, ProjectMemberRequest request) {
-        if (request.userId() == null) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "userId is required");
-        }
         Project project = findProject(projectId);
-        User user = findUser(request.userId());
-        if (projectMemberRepository.existsByProjectIdAndUserId(projectId, user.getId())) {
-            throw new ProjectConflictException(
-                    "User " + user.getId() + " is already a member of project " + projectId);
-        }
-        ProjectRole role = request.role() == null ? ProjectRole.MEMBER : request.role();
-        ProjectMember member = createMembership(project, user, role);
+        ProjectUserSummaryResponse response = addMemberInternal(project, projectId, request);
         projectCache.invalidate();
-        return new ProjectUserSummaryResponse(user.getId(), user.getUsername(), member.getRole());
+        return response;
+    }
+
+    @Transactional
+    public List<ProjectUserSummaryResponse> addMembersBulk(
+            Long projectId, List<ProjectMemberRequest> requests) {
+        Project project = findProject(projectId);
+        try {
+            return addMembersBulkInternal(project, projectId, requests);
+        } finally {
+            projectCache.invalidate();
+        }
     }
 
     @Transactional
@@ -166,6 +209,77 @@ public class ProjectService {
 
     private User findUser(Long id) {
         return userRepository.findById(id).orElseThrow(() -> new UserNotFoundException(id));
+    }
+
+    private List<ProjectUserSummaryResponse> addMembersBulkInternal(
+            Project project, Long projectId, List<ProjectMemberRequest> requests) {
+        List<ProjectMemberRequest> validatedRequests = requireBulkRequests(requests);
+        ensureNoDuplicateUserIds(validatedRequests);
+        return validatedRequests.stream()
+                .map(request -> addMemberInternal(project, projectId, request))
+                .toList();
+    }
+
+    private ProjectUserSummaryResponse addMemberInternal(
+            Project project, Long projectId, ProjectMemberRequest request) {
+        Long userId = requireUserId(request);
+        User user = findUser(userId);
+        if (projectMemberRepository.existsByProjectIdAndUserId(projectId, userId)) {
+            throw new ProjectConflictException(
+                    "User " + userId + " is already a member of project " + projectId);
+        }
+        ProjectRole role = Optional.ofNullable(request.role()).orElse(ProjectRole.MEMBER);
+        ProjectMember member = createMembership(project, user, role);
+        return new ProjectUserSummaryResponse(user.getId(), user.getUsername(), member.getRole());
+    }
+
+    private List<ProjectMemberRequest> requireBulkRequests(List<ProjectMemberRequest> requests) {
+        return Optional.ofNullable(requests)
+                .filter(list -> !list.isEmpty())
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST,
+                                "members list must not be empty"));
+    }
+
+    private void ensureNoDuplicateUserIds(List<ProjectMemberRequest> requests) {
+        Set<Long> duplicateUserIds =
+                requests.stream()
+                        .map(this::requireUserId)
+                        .collect(Collectors.groupingBy(userId -> userId, Collectors.counting()))
+                        .entrySet().stream()
+                        .filter(entry -> entry.getValue() > 1)
+                        .map(Entry::getKey)
+                        .collect(Collectors.toCollection(LinkedHashSet::new));
+        if (!duplicateUserIds.isEmpty()) {
+            throw new ProjectConflictException(
+                    "Request contains duplicate userIds: " + duplicateUserIds);
+        }
+    }
+
+    private Long requireUserId(ProjectMemberRequest request) {
+        return Optional.ofNullable(request)
+                .map(ProjectMemberRequest::userId)
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.BAD_REQUEST,
+                                "userId is required"));
+    }
+
+    private ProjectMember findProjectMember(Long projectId, Long userId) {
+        return projectMemberRepository
+                .findById(new ProjectMemberId(projectId, userId))
+                .orElseThrow(() ->
+                        new ResponseStatusException(
+                                HttpStatus.NOT_FOUND,
+                                "Member with userId " + userId + " not found in project " + projectId));
+    }
+
+    private ProjectUserSummaryResponse toProjectUserSummary(ProjectMember member) {
+        return new ProjectUserSummaryResponse(
+                member.getUser().getId(),
+                member.getUser().getUsername(),
+                member.getRole());
     }
 
     private void createOwnerMembership(Project project, User owner) {

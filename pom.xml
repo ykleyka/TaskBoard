@@ -30,6 +30,8 @@
         <java.version>21</java.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <springdoc-openapi.version>3.0.1</springdoc-openapi.version>
+        <sonar.coverage.jacoco.xmlReportPaths>${project.basedir}/target/site/jacoco/jacoco.xml</sonar.coverage.jacoco.xmlReportPaths>
+        <sonar.coverage.exclusions>src/main/java/com/ykleyka/taskboard/TaskBoardApplication.java,src/main/java/com/ykleyka/taskboard/aop/**,src/main/java/com/ykleyka/taskboard/cache/**,src/main/java/com/ykleyka/taskboard/config/**,src/main/java/com/ykleyka/taskboard/controller/**,src/main/java/com/ykleyka/taskboard/dto/**,src/main/java/com/ykleyka/taskboard/exception/**,src/main/java/com/ykleyka/taskboard/mapper/**,src/main/java/com/ykleyka/taskboard/model/**,src/main/java/com/ykleyka/taskboard/repository/**,src/main/java/com/ykleyka/taskboard/validation/**</sonar.coverage.exclusions>
     </properties>
     <dependencies>
         <dependency>
@@ -86,6 +88,26 @@
 
     <build>
         <plugins>
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <version>0.8.12</version>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-compiler-plugin</artifactId>

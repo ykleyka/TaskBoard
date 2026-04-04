@@ -15,7 +15,10 @@ public record UserRequest(
                 @NotBlank
                 @Email
                 String email,
-        @Schema(description = "User password", example = "StrongPass123!", writeOnly = true)
+        @Schema(
+                        description = "User password",
+                        example = "StrongPass123!",
+                        accessMode = Schema.AccessMode.WRITE_ONLY)
                 @NotBlank(groups = OnCreate.class)
                 @JsonAlias("passwordHash")
                 String password,
