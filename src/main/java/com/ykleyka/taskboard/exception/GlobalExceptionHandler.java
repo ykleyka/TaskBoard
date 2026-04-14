@@ -34,6 +34,7 @@ public class GlobalExceptionHandler {
     private static final String VALIDATION_FAILED_MESSAGE = "Request validation failed";
 
     @ExceptionHandler({
+        AsyncTaskNotFoundException.class,
         UserNotFoundException.class,
         ProjectNotFoundException.class,
         TaskNotFoundException.class,

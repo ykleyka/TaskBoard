@@ -1,4 +1,5 @@
 package com.ykleyka.taskboard.controller;
+import com.ykleyka.taskboard.dto.AsyncTaskSubmissionResponse;
 import com.ykleyka.taskboard.dto.ProjectDetailsResponse;
 import com.ykleyka.taskboard.dto.ProjectMemberRequest;
 import com.ykleyka.taskboard.dto.ProjectMemberRoleRequest;
@@ -6,6 +7,7 @@ import com.ykleyka.taskboard.dto.ProjectPatchRequest;
 import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
 import com.ykleyka.taskboard.dto.ProjectUserSummaryResponse;
+import com.ykleyka.taskboard.service.AsyncTaskService;
 import com.ykleyka.taskboard.service.ProjectService;
 import com.ykleyka.taskboard.validation.OnCreate;
 import io.swagger.v3.oas.annotations.Operation;
@@ -19,6 +21,7 @@ import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.ResponseEntity;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -37,6 +40,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Projects", description = "Operations for managing projects and project members")
 public class ProjectController {
     private final ProjectService service;
+    private final AsyncTaskService asyncTaskService;
 
     @Operation(summary = "List projects", description = "Returns a paginated list of projects.")
     @GetMapping
@@ -70,6 +74,18 @@ public class ProjectController {
     public ProjectResponse createProject(
             @Validated({Default.class, OnCreate.class}) @RequestBody ProjectRequest request) {
         return service.createProject(request);
+    }
+
+    @Operation(
+            summary = "Generate project summary report asynchronously",
+            description =
+                    "Starts asynchronous generation of the project summary report and returns "
+                            + "the async task id.")
+    @PostMapping("/{id}/summary-report")
+    public ResponseEntity<AsyncTaskSubmissionResponse> generateProjectSummaryReport(
+            @PathVariable @Positive Long id) {
+        return ResponseEntity.accepted()
+                .body(asyncTaskService.submitProjectSummaryReport(id));
     }
 
     @Operation(summary = "Add project member", description = "Adds a user to the specified project.")
