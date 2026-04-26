@@ -57,7 +57,8 @@ class ProjectSummaryReportServiceTest {
                                         "member",
                                         now.minusSeconds(600),
                                         now.minusSeconds(7200),
-                                        now.minusSeconds(120)),
+                                        now.minusSeconds(120),
+                                        List.of()),
                                 new ProjectTaskSummaryResponse(
                                         2L,
                                         "Completed task",
@@ -69,7 +70,8 @@ class ProjectSummaryReportServiceTest {
                                         null,
                                         now.minusSeconds(300),
                                         now.minusSeconds(7200),
-                                        now.minusSeconds(120)),
+                                        now.minusSeconds(120),
+                                        List.of()),
                                 new ProjectTaskSummaryResponse(
                                         3L,
                                         "In progress",
@@ -81,7 +83,8 @@ class ProjectSummaryReportServiceTest {
                                         null,
                                         now.plusSeconds(3600),
                                         now.minusSeconds(7200),
-                                        now.minusSeconds(120))));
+                                        now.minusSeconds(120),
+                                        List.of())));
         when(projectService.getProjectById(projectId)).thenReturn(details);
 
         ProjectSummaryReportResponse report = service.buildProjectSummaryReport(projectId);
@@ -128,7 +131,8 @@ class ProjectSummaryReportServiceTest {
                                         null,
                                         null,
                                         now.minusSeconds(7200),
-                                        now.minusSeconds(120)),
+                                        now.minusSeconds(120),
+                                        List.of()),
                                 new ProjectTaskSummaryResponse(
                                         11L,
                                         "Assigned low priority",
@@ -140,7 +144,8 @@ class ProjectSummaryReportServiceTest {
                                         "owner",
                                         null,
                                         now.minusSeconds(7200),
-                                        now.minusSeconds(120))));
+                                        now.minusSeconds(120),
+                                        List.of())));
         when(projectService.getProjectById(projectId)).thenReturn(details);
 
         ProjectSummaryReportResponse report = service.buildProjectSummaryReport(projectId);

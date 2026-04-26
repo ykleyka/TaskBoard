@@ -58,6 +58,17 @@ public class TaskService {
     public List<TaskResponse> getTasks(
             Status status,
             String assignee,
+            Long currentUserId,
+            Pageable pageable) {
+        String normalizedAssignee = normalizeAssigneeValue(assignee);
+        Page<Task> tasks =
+                repository.findAllVisibleToUser(currentUserId, status, normalizedAssignee, pageable);
+        return refreshOverdueFlags(toTaskResponses(tasks));
+    }
+
+    public List<TaskResponse> getTasks(
+            Status status,
+            String assignee,
             Pageable pageable) {
         String normalizedAssignee = normalizeAssigneeValue(assignee);
         TaskQueryKey key =
@@ -87,6 +98,20 @@ public class TaskService {
                 });
     }
 
+    public TaskDetailsResponse getTaskById(Long id, Long currentUserId) {
+        TaskDetailsResponse cached = taskCache.getTaskDetails(id);
+        if (cached != null) {
+            requireProjectMember(cached.projectId(), currentUserId);
+            log.info("Task {} details returned from cache", id);
+            return cached;
+        }
+        Task task = findDetailedTask(id);
+        requireTaskMember(task, currentUserId);
+        TaskDetailsResponse response = mapper.toDetailsResponse(task);
+        taskCache.putTaskDetails(id, response);
+        return response;
+    }
+
     public TaskDetailsResponse getTaskById(Long id) {
         TaskDetailsResponse cached = taskCache.getTaskDetails(id);
         if (cached != null) {
@@ -104,6 +129,27 @@ public class TaskService {
 
     private Task findDetailedTask(Long id) {
         return repository.findDetailedById(id).orElseThrow(() -> new TaskNotFoundException(id));
+    }
+
+    public TaskResponse createTask(TaskRequest request, Long currentUserId) {
+        Project project = findProject(request.projectId());
+        requireProjectMember(project.getId(), currentUserId);
+        User creator = findUser(currentUserId);
+        User assignee = request.assigneeId() == null ? null : findUser(request.assigneeId());
+        if (assignee != null) {
+            ensureProjectMember(project.getId(), assignee.getId());
+        }
+        Task task = mapper.toEntity(request);
+        task.setStatus(request.status() == null ? Status.TODO : request.status());
+        task.setProject(project);
+        task.setCreator(creator);
+        task.setAssignee(assignee);
+        task.setUpdatedAt(Instant.now());
+        TaskResponse response = mapper.toResponse(repository.save(task));
+        projectCache.invalidate();
+        tagCache.invalidate();
+        taskCache.invalidateQueries();
+        return response;
     }
 
     public TaskResponse createTask(TaskRequest request) {
@@ -131,6 +177,38 @@ public class TaskService {
     }
 
     @Transactional
+    public TaskResponse updateTask(Long id, TaskRequest request, Long currentUserId) {
+        Task task = findTask(id);
+        requireTaskMember(task, currentUserId);
+        Project project = findProject(request.projectId());
+        requireProjectMember(project.getId(), currentUserId);
+        User creator = request.creatorId() == null ? task.getCreator() : findUser(request.creatorId());
+        User assignee = request.assigneeId() == null ? null : findUser(request.assigneeId());
+        if (creator != null) {
+            ensureProjectMember(project.getId(), creator.getId());
+        }
+        if (assignee != null) {
+            ensureProjectMember(project.getId(), assignee.getId());
+        }
+
+        task.setTitle(request.title());
+        task.setDescription(request.description());
+        task.setStatus(request.status() == null ? Status.TODO : request.status());
+        task.setPriority(request.priority());
+        task.setProject(project);
+        task.setCreator(creator);
+        task.setAssignee(assignee);
+        task.setDueDate(request.dueDate());
+        task.setUpdatedAt(Instant.now());
+
+        TaskResponse response = mapper.toResponse(repository.save(task));
+        projectCache.invalidate();
+        tagCache.invalidate();
+        taskCache.invalidateTask(id);
+        return response;
+    }
+
+    @Transactional
     public TaskResponse updateTask(Long id, TaskRequest request) {
         Task task = findTask(id);
         Project project = findProject(request.projectId());
@@ -153,6 +231,56 @@ public class TaskService {
         task.setDueDate(request.dueDate());
         task.setUpdatedAt(Instant.now());
 
+        TaskResponse response = mapper.toResponse(repository.save(task));
+        projectCache.invalidate();
+        tagCache.invalidate();
+        taskCache.invalidateTask(id);
+        return response;
+    }
+
+    public TaskResponse patchTask(Long id, TaskPatchRequest request, Long currentUserId) {
+        Task task = findTask(id);
+        requireTaskMember(task, currentUserId);
+        Project effectiveProject =
+                request.projectId() == null ? task.getProject() : findProject(request.projectId());
+        if (request.projectId() != null && effectiveProject != null) {
+            requireProjectMember(effectiveProject.getId(), currentUserId);
+        }
+        User effectiveAssignee =
+                request.assigneeId() == null ? task.getAssignee() : findUser(request.assigneeId());
+        User creator = task.getCreator();
+        if (effectiveProject != null) {
+            if (creator != null) {
+                ensureProjectMember(effectiveProject.getId(), creator.getId());
+            }
+            if (effectiveAssignee != null) {
+                ensureProjectMember(effectiveProject.getId(), effectiveAssignee.getId());
+            }
+        }
+
+        if (request.title() != null) {
+            task.setTitle(request.title());
+        }
+        if (request.description() != null) {
+            task.setDescription(request.description());
+        }
+        if (request.status() != null) {
+            task.setStatus(request.status());
+        }
+        if (request.projectId() != null) {
+            task.setProject(effectiveProject);
+        }
+        if (request.assigneeId() != null) {
+            task.setAssignee(effectiveAssignee);
+        }
+        if (request.priority() != null) {
+            task.setPriority(request.priority());
+        }
+        if (request.dueDate() != null) {
+            task.setDueDate(request.dueDate());
+        }
+
+        task.setUpdatedAt(Instant.now());
         TaskResponse response = mapper.toResponse(repository.save(task));
         projectCache.invalidate();
         tagCache.invalidate();
@@ -206,6 +334,12 @@ public class TaskService {
         return response;
     }
 
+    public TaskResponse deleteTask(Long id, Long currentUserId) {
+        Task task = findTask(id);
+        requireTaskMember(task, currentUserId);
+        return deleteTask(id);
+    }
+
     public TaskResponse deleteTask(Long id) {
         Task task = findTask(id);
         repository.delete(task);
@@ -215,6 +349,18 @@ public class TaskService {
         commentCache.invalidateTask(id);
         taskCache.invalidateTask(id);
         return response;
+    }
+
+    public List<TaskResponse> searchTasksByProjectIdAndTag(
+            Long projectId,
+            String tagName,
+            Status status,
+            String assignee,
+            int page,
+            int size,
+            Long currentUserId) {
+        requireProjectMember(projectId, currentUserId);
+        return searchTasksByProjectIdAndTag(projectId, tagName, status, assignee, page, size);
     }
 
     public List<TaskResponse> searchTasksByProjectIdAndTag(
@@ -245,6 +391,26 @@ public class TaskService {
                                 status,
                                 assigneePattern,
                                 pageable));
+    }
+
+    public List<TaskResponse> searchOverdueTasksByProjectIdAndTagNative(
+            Long projectId,
+            String tagName,
+            Status status,
+            String assignee,
+            Instant dueBefore,
+            int page,
+            int size,
+            Long currentUserId) {
+        requireProjectMember(projectId, currentUserId);
+        return searchOverdueTasksByProjectIdAndTagNative(
+                projectId,
+                tagName,
+                status,
+                assignee,
+                dueBefore,
+                page,
+                size);
     }
 
     public List<TaskResponse> searchOverdueTasksByProjectIdAndTagNative(
@@ -370,6 +536,31 @@ public class TaskService {
 
     private Project findProject(Long id) {
         return projectRepository.findById(id).orElseThrow(() -> new ProjectNotFoundException(id));
+    }
+
+    public void requireTaskMember(Long taskId, Long userId) {
+        requireTaskMember(findTask(taskId), userId);
+    }
+
+    public void requireTaskEditor(Long taskId, Long userId) {
+        requireTaskMember(findTask(taskId), userId);
+    }
+
+    private void requireTaskMember(Task task, Long userId) {
+        requireProjectMember(requireTaskProjectId(task), userId);
+    }
+
+    private void requireProjectMember(Long projectId, Long userId) {
+        if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, userId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found");
+        }
+    }
+
+    private Long requireTaskProjectId(Task task) {
+        if (task == null || task.getProject() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task has no project");
+        }
+        return task.getProject().getId();
     }
 
     private void ensureProjectMember(Long projectId, Long userId) {

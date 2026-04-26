@@ -637,6 +637,29 @@ class TaskServiceTest {
     }
 
     @Test
+    void patchTask_withCurrentProjectMember_updatesStatus() {
+        Long taskId = 90L;
+        Long projectId = 91L;
+        Long currentUserId = 92L;
+        Task existing = task(taskId, project(projectId), null, null);
+        TaskPatchRequest request =
+                new TaskPatchRequest(null, null, null, null, Status.COMPLETED, null, null);
+
+        when(repository.findById(taskId)).thenReturn(Optional.of(existing));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(true);
+        when(repository.save(existing)).thenReturn(existing);
+        when(mapper.toResponse(existing))
+                .thenReturn(taskResponse(taskId, "Patched", Status.COMPLETED, null, false));
+
+        TaskResponse actual = service.patchTask(taskId, request, currentUserId);
+
+        assertEquals(taskId, actual.id());
+        assertEquals(Status.COMPLETED, existing.getStatus());
+        verify(projectMemberRepository).existsByProjectIdAndUserId(projectId, currentUserId);
+    }
+
+    @Test
     void deleteTask_whenValid_deletesAndInvalidatesRelatedCaches() {
         Long taskId = 30L;
         Task existing = task(taskId, project(1L), user(2L, "creator"), null);

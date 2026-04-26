@@ -652,6 +652,7 @@ class ProjectServiceTest {
                                 null,
                                 null,
                                 now,
-                                now)));
+                                now,
+                                List.of())));
     }
 }

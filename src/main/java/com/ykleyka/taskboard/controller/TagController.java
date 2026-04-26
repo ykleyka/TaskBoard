@@ -1,6 +1,7 @@
 package com.ykleyka.taskboard.controller;
 import com.ykleyka.taskboard.dto.TagRequest;
 import com.ykleyka.taskboard.dto.TagResponse;
+import com.ykleyka.taskboard.security.AuthenticatedUser;
 import com.ykleyka.taskboard.service.TagService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -11,6 +12,7 @@ import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -45,15 +47,17 @@ public class TagController {
     @PostMapping("/tasks/{taskId}/tags/{tagId}")
     public TagResponse assignTagToTask(
             @PathVariable @Positive Long taskId,
-            @PathVariable @Positive Long tagId) {
-        return service.assignTagToTask(taskId, tagId);
+            @PathVariable @Positive Long tagId,
+            @AuthenticationPrincipal AuthenticatedUser currentUser) {
+        return service.assignTagToTask(taskId, tagId, currentUser.id());
     }
 
     @Operation(summary = "Remove tag from task", description = "Removes a tag from a task.")
     @DeleteMapping("/tasks/{taskId}/tags/{tagId}")
     public TagResponse removeTagFromTask(
             @PathVariable @Positive Long taskId,
-            @PathVariable @Positive Long tagId) {
-        return service.removeTagFromTask(taskId, tagId);
+            @PathVariable @Positive Long tagId,
+            @AuthenticationPrincipal AuthenticatedUser currentUser) {
+        return service.removeTagFromTask(taskId, tagId, currentUser.id());
     }
 }

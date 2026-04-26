@@ -46,6 +46,12 @@ import org.springframework.web.server.ResponseStatusException;
 @Slf4j
 @RequiredArgsConstructor
 public class ProjectService {
+    private static final Set<ProjectRole> ALL_PROJECT_ROLES =
+            Set.of(ProjectRole.OWNER, ProjectRole.MANAGER, ProjectRole.MEMBER);
+    private static final Set<ProjectRole> PROJECT_EDIT_ROLES =
+            Set.of(ProjectRole.OWNER, ProjectRole.MANAGER);
+    private static final Set<ProjectRole> OWNER_ONLY = Set.of(ProjectRole.OWNER);
+
     private final ProjectMapper mapper;
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
@@ -55,6 +61,12 @@ public class ProjectService {
     private final TagCache tagCache;
     private final CommentCache commentCache;
     private final TaskCache taskCache;
+
+    public List<ProjectResponse> getProjects(Long currentUserId, Pageable pageable) {
+        return projectRepository.findAllVisibleToUser(currentUserId, pageable)
+                .map(mapper::toResponse)
+                .getContent();
+    }
 
     public List<ProjectResponse> getProjects(Pageable pageable) {
         PageKey key = PageKey.from(pageable);
@@ -73,6 +85,11 @@ public class ProjectService {
         return content;
     }
 
+    public ProjectDetailsResponse getProjectById(Long id, Long currentUserId) {
+        requireProjectMember(id, currentUserId);
+        return getProjectById(id);
+    }
+
     public ProjectDetailsResponse getProjectById(Long id) {
         ProjectDetailsResponse cached = projectCache.getProjectDetails(id);
         if (cached != null) {
@@ -84,6 +101,11 @@ public class ProjectService {
         return response;
     }
 
+    public List<ProjectUserSummaryResponse> getProjectMembers(Long id, Long currentUserId) {
+        requireProjectMember(id, currentUserId);
+        return getProjectMembers(id);
+    }
+
     public List<ProjectUserSummaryResponse> getProjectMembers(Long id) {
         findProject(id);
         return projectMemberRepository.findAllByProjectId(id).stream()
@@ -92,9 +114,24 @@ public class ProjectService {
                 .toList();
     }
 
+    public ProjectUserSummaryResponse getProjectMember(
+            Long projectId, Long userId, Long currentUserId) {
+        requireProjectMember(projectId, currentUserId);
+        return getProjectMember(projectId, userId);
+    }
+
     public ProjectUserSummaryResponse getProjectMember(Long projectId, Long userId) {
         findProject(projectId);
         return toProjectUserSummary(findProjectMember(projectId, userId));
+    }
+
+    @Transactional
+    public ProjectUserSummaryResponse updateProjectMember(
+            Long projectId, Long userId, ProjectMemberRoleRequest request, Long currentUserId) {
+        requireProjectRole(projectId, currentUserId, OWNER_ONLY);
+        ProjectMember member = findProjectMember(projectId, userId);
+        ensureOwnerRoleCanChange(member, request.role());
+        return updateProjectMember(projectId, userId, request);
     }
 
     @Transactional
@@ -109,6 +146,15 @@ public class ProjectService {
     }
 
     @Transactional
+    public ProjectUserSummaryResponse deleteProjectMember(
+            Long projectId, Long userId, Long currentUserId) {
+        ProjectRole actorRole = requireProjectRole(projectId, currentUserId, PROJECT_EDIT_ROLES);
+        ProjectMember member = findProjectMember(projectId, userId);
+        ensureMemberCanBeRemoved(actorRole, member);
+        return deleteProjectMember(projectId, userId);
+    }
+
+    @Transactional
     public ProjectUserSummaryResponse deleteProjectMember(Long projectId, Long userId) {
         findProject(projectId);
         ProjectMember member = findProjectMember(projectId, userId);
@@ -119,17 +165,30 @@ public class ProjectService {
     }
 
     @Transactional
+    public ProjectResponse createProject(ProjectRequest request, Long currentUserId) {
+        return createProjectForOwner(request, findUser(currentUserId));
+    }
+
+    @Transactional
     public ProjectResponse createProject(ProjectRequest request) {
         if (request.ownerId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "ownerId is required");
         }
-        User owner = findUser(request.ownerId());
+        return createProjectForOwner(request, findUser(request.ownerId()));
+    }
+
+    private ProjectResponse createProjectForOwner(ProjectRequest request, User owner) {
         Project project = mapper.toEntity(request);
         Project savedProject = projectRepository.save(project);
         createOwnerMembership(savedProject, owner);
         ProjectResponse response = mapper.toResponse(savedProject);
         projectCache.invalidate();
         return response;
+    }
+
+    public ProjectResponse updateProject(Long id, ProjectRequest request, Long currentUserId) {
+        requireProjectRole(id, currentUserId, PROJECT_EDIT_ROLES);
+        return updateProject(id, request);
     }
 
     public ProjectResponse updateProject(Long id, ProjectRequest request) {
@@ -141,6 +200,11 @@ public class ProjectService {
         projectCache.invalidate();
         taskCache.invalidate();
         return response;
+    }
+
+    public ProjectResponse patchProject(Long id, ProjectPatchRequest request, Long currentUserId) {
+        requireProjectRole(id, currentUserId, PROJECT_EDIT_ROLES);
+        return patchProject(id, request);
     }
 
     public ProjectResponse patchProject(Long id, ProjectPatchRequest request) {
@@ -164,11 +228,27 @@ public class ProjectService {
     }
 
     @Transactional
+    public ProjectUserSummaryResponse addMember(
+            Long projectId, ProjectMemberRequest request, Long currentUserId) {
+        ProjectRole actorRole = requireProjectRole(projectId, currentUserId, PROJECT_EDIT_ROLES);
+        ensureAssignableByActor(actorRole, request);
+        return addMember(projectId, request);
+    }
+
+    @Transactional
     public ProjectUserSummaryResponse addMember(Long projectId, ProjectMemberRequest request) {
         Project project = findProject(projectId);
         ProjectUserSummaryResponse response = addMemberInternal(project, projectId, request);
         projectCache.invalidate();
         return response;
+    }
+
+    @Transactional
+    public List<ProjectUserSummaryResponse> addMembersBulk(
+            Long projectId, List<ProjectMemberRequest> requests, Long currentUserId) {
+        ProjectRole actorRole = requireProjectRole(projectId, currentUserId, PROJECT_EDIT_ROLES);
+        requireBulkRequests(requests).forEach(request -> ensureAssignableByActor(actorRole, request));
+        return addMembersBulk(projectId, requests);
     }
 
     @Transactional
@@ -180,6 +260,12 @@ public class ProjectService {
         } finally {
             projectCache.invalidate();
         }
+    }
+
+    @Transactional
+    public ProjectResponse deleteProject(Long id, Long currentUserId) {
+        requireProjectRole(id, currentUserId, OWNER_ONLY);
+        return deleteProject(id);
     }
 
     @Transactional
@@ -199,12 +285,38 @@ public class ProjectService {
         return response;
     }
 
+    public void requireProjectMember(Long projectId, Long userId) {
+        requireProjectRole(projectId, userId, ALL_PROJECT_ROLES);
+    }
+
+    public ProjectRole requireProjectEditor(Long projectId, Long userId) {
+        return requireProjectRole(projectId, userId, PROJECT_EDIT_ROLES);
+    }
+
+    public ProjectRole requireProjectOwner(Long projectId, Long userId) {
+        return requireProjectRole(projectId, userId, OWNER_ONLY);
+    }
+
     private Project findProject(Long id) {
         return projectRepository.findById(id).orElseThrow(() -> new ProjectNotFoundException(id));
     }
 
     private Project findDetailedProject(Long id) {
         return projectRepository.findDetailedById(id).orElseThrow(() -> new ProjectNotFoundException(id));
+    }
+
+    private ProjectRole requireProjectRole(Long projectId, Long userId, Set<ProjectRole> allowedRoles) {
+        ProjectMember member = projectMemberRepository
+                .findById(new ProjectMemberId(projectId, userId))
+                .orElseThrow(() ->
+                        new ResponseStatusException(HttpStatus.NOT_FOUND, "Project not found"));
+        ProjectRole role = member.getRole();
+        if (!allowedRoles.contains(role)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Insufficient project permissions");
+        }
+        return role;
     }
 
     private User findUser(Long id) {
@@ -218,6 +330,42 @@ public class ProjectService {
         return validatedRequests.stream()
                 .map(request -> addMemberInternal(project, projectId, request))
                 .toList();
+    }
+
+    private void ensureAssignableByActor(ProjectRole actorRole, ProjectMemberRequest request) {
+        ProjectRole requestedRole =
+                Optional.ofNullable(request)
+                        .map(ProjectMemberRequest::role)
+                        .orElse(ProjectRole.MEMBER);
+        if (actorRole == ProjectRole.MANAGER && requestedRole != ProjectRole.MEMBER) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Managers can add only MEMBER users");
+        }
+    }
+
+    private void ensureMemberCanBeRemoved(ProjectRole actorRole, ProjectMember member) {
+        if (actorRole == ProjectRole.MANAGER && member.getRole() != ProjectRole.MEMBER) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Managers can remove only MEMBER users");
+        }
+        ensureOwnerRoleCanChange(member, null);
+    }
+
+    private void ensureOwnerRoleCanChange(ProjectMember member, ProjectRole nextRole) {
+        if (member.getRole() != ProjectRole.OWNER || nextRole == ProjectRole.OWNER) {
+            return;
+        }
+        long ownerCount =
+                projectMemberRepository.countByProjectIdAndRole(
+                        member.getProject().getId(),
+                        ProjectRole.OWNER);
+        if (ownerCount <= 1) {
+            throw new ResponseStatusException(
+                    HttpStatus.CONFLICT,
+                    "Project must have at least one OWNER");
+        }
     }
 
     private ProjectUserSummaryResponse addMemberInternal(

@@ -2,7 +2,6 @@ package com.ykleyka.taskboard.dto;
 
 import com.ykleyka.taskboard.model.enums.Priority;
 import com.ykleyka.taskboard.model.enums.Status;
-import com.ykleyka.taskboard.validation.OnCreate;
 import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -21,8 +20,7 @@ public record TaskRequest(
                 @NotNull
                 @Positive
                 Long projectId,
-        @Schema(description = "Creator identifier", example = "1")
-                @NotNull(groups = OnCreate.class)
+        @Schema(description = "Legacy creator identifier. Authenticated clients can omit it.", example = "1")
                 @Positive
                 Long creatorId,
         @Schema(description = "Assignee identifier", example = "9")

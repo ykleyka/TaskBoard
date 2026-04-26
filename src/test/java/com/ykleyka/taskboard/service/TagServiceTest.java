@@ -16,8 +16,10 @@ import com.ykleyka.taskboard.dto.TagResponse;
 import com.ykleyka.taskboard.exception.TagNotFoundException;
 import com.ykleyka.taskboard.exception.TaskNotFoundException;
 import com.ykleyka.taskboard.mapper.TagMapper;
+import com.ykleyka.taskboard.model.Project;
 import com.ykleyka.taskboard.model.Tag;
 import com.ykleyka.taskboard.model.Task;
+import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.TagRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import java.util.HashSet;
@@ -40,6 +42,8 @@ class TagServiceTest {
     private TagRepository tagRepository;
     @Mock
     private TaskRepository taskRepository;
+    @Mock
+    private ProjectMemberRepository projectMemberRepository;
     @Mock
     private TagCache tagCache;
     @Mock
@@ -152,6 +156,30 @@ class TagServiceTest {
     }
 
     @Test
+    void assignTagToTask_withCurrentProjectMember_addsTag() {
+        Long taskId = 45L;
+        Long tagId = 46L;
+        Long projectId = 47L;
+        Long currentUserId = 48L;
+        Task task = task(taskId, projectId);
+        Tag tag = tag(tagId, "member-tag");
+        TagResponse expected = new TagResponse(tagId, "member-tag", 1);
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(true);
+        when(tagRepository.findById(tagId)).thenReturn(Optional.of(tag));
+        when(taskRepository.save(task)).thenReturn(task);
+        when(mapper.toResponse(tag)).thenReturn(expected);
+
+        TagResponse actual = service.assignTagToTask(taskId, tagId, currentUserId);
+
+        assertEquals(expected, actual);
+        assertTrue(task.getTags().contains(tag));
+        verify(projectMemberRepository).existsByProjectIdAndUserId(projectId, currentUserId);
+    }
+
+    @Test
     void removeTagFromTask_whenRemoved_savesAndInvalidatesCaches() {
         Long taskId = 50L;
         Long tagId = 60L;
@@ -198,6 +226,14 @@ class TagServiceTest {
         Task task = new Task();
         task.setId(id);
         task.setTags(new HashSet<>());
+        return task;
+    }
+
+    private Task task(Long id, Long projectId) {
+        Task task = task(id);
+        Project project = new Project();
+        project.setId(projectId);
+        task.setProject(project);
         return task;
     }
 

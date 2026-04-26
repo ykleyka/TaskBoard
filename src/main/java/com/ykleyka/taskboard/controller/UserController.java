@@ -4,6 +4,7 @@ import com.ykleyka.taskboard.dto.UserRequest;
 import com.ykleyka.taskboard.dto.UserResponse;
 import com.ykleyka.taskboard.mapper.UserMapper;
 import com.ykleyka.taskboard.model.User;
+import com.ykleyka.taskboard.security.AuthenticatedUser;
 import com.ykleyka.taskboard.service.UserService;
 import com.ykleyka.taskboard.validation.OnCreate;
 import io.swagger.v3.oas.annotations.Operation;
@@ -16,6 +17,8 @@ import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
+import org.springframework.http.HttpStatus;
+import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +29,7 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 @RestController
 @Validated
@@ -59,7 +63,10 @@ public class UserController {
     @Operation(summary = "Replace user", description = "Fully updates an existing user.")
     @PutMapping("/{id}")
     public UserResponse updateUser(
-            @PathVariable @Positive Long id, @Valid @RequestBody UserRequest request) {
+            @PathVariable @Positive Long id,
+            @AuthenticationPrincipal AuthenticatedUser currentUser,
+            @Valid @RequestBody UserRequest request) {
+        requireSelf(id, currentUser);
         User user = mapper.toEntity(request);
         return mapper.toResponse(service.updateUser(id, user));
     }
@@ -68,13 +75,26 @@ public class UserController {
     @PatchMapping("/{id}")
     public UserResponse patchUser(
             @PathVariable @Positive Long id,
+            @AuthenticationPrincipal AuthenticatedUser currentUser,
             @Valid @RequestBody UserPatchRequest request) {
+        requireSelf(id, currentUser);
         return mapper.toResponse(service.patchUser(id, request));
     }
 
     @Operation(summary = "Delete user", description = "Deletes a user and returns the removed entity.")
     @DeleteMapping("/{id}")
-    public UserResponse deleteUser(@PathVariable @Positive Long id) {
+    public UserResponse deleteUser(
+            @PathVariable @Positive Long id,
+            @AuthenticationPrincipal AuthenticatedUser currentUser) {
+        requireSelf(id, currentUser);
         return mapper.toResponse(service.deleteUser(id));
+    }
+
+    private void requireSelf(Long id, AuthenticatedUser currentUser) {
+        if (!id.equals(currentUser.id())) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Users can modify only their own profile");
+        }
     }
 }

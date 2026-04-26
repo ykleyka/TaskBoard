@@ -19,6 +19,7 @@ utils/EnvConfig.java
 stdout
 *.http
 checkstyle-debug.log
+spring-boot-dev*.log
 
 ### STS ###
 .apt_generated
@@ -46,7 +47,14 @@ diagram.*
 build/
 !**/src/main/**/build/
 !**/src/test/**/build/
+frontend/node_modules/
+frontend/dist/
+frontend/*.log
+frontend/*.tsbuildinfo
+frontend/vite.config.d.ts
+frontend/vite.config.js
 
 ### VS Code ###
 .vscode/
 load-tests/
+/docs/

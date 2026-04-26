@@ -5,6 +5,7 @@ import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
 import com.ykleyka.taskboard.dto.ProjectTaskSummaryResponse;
 import com.ykleyka.taskboard.dto.ProjectUserSummaryResponse;
+import com.ykleyka.taskboard.dto.TaskTagSummaryResponse;
 import com.ykleyka.taskboard.model.Project;
 import com.ykleyka.taskboard.model.enums.Status;
 import java.time.Instant;
@@ -49,8 +50,15 @@ public class ProjectMapper {
         List<ProjectTaskSummaryResponse> tasks =
                 project.getTasks().stream()
                         .map(
-                                task ->
-                                        new ProjectTaskSummaryResponse(
+                                task -> {
+                                    List<TaskTagSummaryResponse> tags =
+                                            task.getTags().stream()
+                                                    .map(tag -> new TaskTagSummaryResponse(
+                                                            tag.getId(), tag.getName()))
+                                                    .sorted(Comparator.comparing(
+                                                            TaskTagSummaryResponse::id))
+                                                    .toList();
+                                    return new ProjectTaskSummaryResponse(
                                                 task.getId(),
                                                 task.getTitle(),
                                                 task.getStatus(),
@@ -69,7 +77,9 @@ public class ProjectMapper {
                                                         : task.getAssignee().getUsername(),
                                                 task.getDueDate(),
                                                 task.getCreatedAt(),
-                                                task.getUpdatedAt()))
+                                                task.getUpdatedAt(),
+                                                tags);
+                                })
                         .sorted(Comparator.comparing(ProjectTaskSummaryResponse::id))
                         .toList();
 

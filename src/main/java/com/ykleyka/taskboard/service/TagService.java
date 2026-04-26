@@ -10,6 +10,7 @@ import com.ykleyka.taskboard.exception.TaskNotFoundException;
 import com.ykleyka.taskboard.mapper.TagMapper;
 import com.ykleyka.taskboard.model.Tag;
 import com.ykleyka.taskboard.model.Task;
+import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.TagRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import java.time.Instant;
@@ -17,8 +18,10 @@ import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 @Service
 @Slf4j
@@ -27,6 +30,7 @@ public class TagService {
     private final TagMapper mapper;
     private final TagRepository tagRepository;
     private final TaskRepository taskRepository;
+    private final ProjectMemberRepository projectMemberRepository;
     private final TagCache tagCache;
     private final TaskCache taskCache;
 
@@ -62,6 +66,12 @@ public class TagService {
     }
 
     @Transactional
+    public TagResponse assignTagToTask(Long taskId, Long tagId, Long currentUserId) {
+        requireTaskMember(findTask(taskId), currentUserId);
+        return assignTagToTask(taskId, tagId);
+    }
+
+    @Transactional
     public TagResponse assignTagToTask(Long taskId, Long tagId) {
         Task task = findTask(taskId);
         Tag tag = findTag(tagId);
@@ -76,6 +86,12 @@ public class TagService {
             taskCache.invalidateTask(taskId);
         }
         return mapper.toResponse(tag);
+    }
+
+    @Transactional
+    public TagResponse removeTagFromTask(Long taskId, Long tagId, Long currentUserId) {
+        requireTaskMember(findTask(taskId), currentUserId);
+        return removeTagFromTask(taskId, tagId);
     }
 
     @Transactional
@@ -99,5 +115,15 @@ public class TagService {
 
     private Tag findTag(Long id) {
         return tagRepository.findById(id).orElseThrow(() -> new TagNotFoundException(id));
+    }
+
+    private void requireTaskMember(Task task, Long userId) {
+        if (task == null || task.getProject() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task has no project");
+        }
+        Long projectId = task.getProject().getId();
+        if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, userId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found");
+        }
     }
 }

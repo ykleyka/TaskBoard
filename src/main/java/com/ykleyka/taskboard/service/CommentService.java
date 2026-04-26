@@ -10,14 +10,17 @@ import com.ykleyka.taskboard.exception.TaskNotFoundException;
 import com.ykleyka.taskboard.exception.UserNotFoundException;
 import com.ykleyka.taskboard.mapper.CommentMapper;
 import com.ykleyka.taskboard.model.Comment;
+import com.ykleyka.taskboard.model.ProjectMemberId;
 import com.ykleyka.taskboard.model.Task;
 import com.ykleyka.taskboard.model.User;
+import com.ykleyka.taskboard.model.enums.ProjectRole;
 import com.ykleyka.taskboard.repository.CommentRepository;
 import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
@@ -29,6 +32,9 @@ import org.springframework.web.server.ResponseStatusException;
 @Slf4j
 @RequiredArgsConstructor
 public class CommentService {
+    private static final Set<ProjectRole> PROJECT_EDIT_ROLES =
+            Set.of(ProjectRole.OWNER, ProjectRole.MANAGER);
+
     private final CommentMapper mapper;
     private final CommentRepository commentRepository;
     private final TaskRepository taskRepository;
@@ -36,6 +42,13 @@ public class CommentService {
     private final ProjectMemberRepository projectMemberRepository;
     private final CommentCache commentCache;
     private final TaskCache taskCache;
+
+    public List<CommentResponse> getCommentsByTaskId(
+            Long taskId, Pageable pageable, Long currentUserId) {
+        Task task = findTask(taskId);
+        requireProjectMember(task, currentUserId);
+        return getCommentsByTaskId(taskId, pageable);
+    }
 
     public List<CommentResponse> getCommentsByTaskId(Long taskId, Pageable pageable) {
         if (!taskRepository.existsById(taskId)) {
@@ -59,6 +72,19 @@ public class CommentService {
         return content;
     }
 
+    public CommentResponse createComment(Long taskId, CommentRequest request, Long currentUserId) {
+        Comment comment = mapper.toEntity(request);
+        Task task = findTask(taskId);
+        User author = findUser(currentUserId);
+        requireProjectMember(task, currentUserId);
+        comment.setTask(task);
+        comment.setAuthor(author);
+        CommentResponse response = mapper.toResponse(commentRepository.save(comment));
+        commentCache.invalidateTask(taskId);
+        taskCache.invalidateTaskDetails(taskId);
+        return response;
+    }
+
     public CommentResponse createComment(Long taskId, CommentRequest request) {
         if (request.authorId() == null) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "authorId is required");
@@ -75,12 +101,37 @@ public class CommentService {
         return response;
     }
 
+    public CommentResponse updateComment(Long id, CommentRequest request, Long currentUserId) {
+        Comment comment = findComment(id);
+        requireCommentMutationAllowed(comment, currentUserId);
+        comment.setText(request.text());
+        comment.setUpdatedAt(Instant.now());
+        CommentResponse response = mapper.toResponse(commentRepository.save(comment));
+        if (comment.getTask() != null) {
+            commentCache.invalidateTask(comment.getTask().getId());
+            taskCache.invalidateTaskDetails(comment.getTask().getId());
+        }
+        return response;
+    }
+
     public CommentResponse updateComment(Long id, CommentRequest request) {
         Comment comment = findComment(id);
         ensureProjectMember(comment.getTask(), comment.getAuthor());
         comment.setText(request.text());
         comment.setUpdatedAt(Instant.now());
         CommentResponse response = mapper.toResponse(commentRepository.save(comment));
+        if (comment.getTask() != null) {
+            commentCache.invalidateTask(comment.getTask().getId());
+            taskCache.invalidateTaskDetails(comment.getTask().getId());
+        }
+        return response;
+    }
+
+    public CommentResponse deleteComment(Long id, Long currentUserId) {
+        Comment comment = findComment(id);
+        requireCommentMutationAllowed(comment, currentUserId);
+        commentRepository.delete(comment);
+        CommentResponse response = mapper.toResponse(comment);
         if (comment.getTask() != null) {
             commentCache.invalidateTask(comment.getTask().getId());
             taskCache.invalidateTaskDetails(comment.getTask().getId());
@@ -110,6 +161,40 @@ public class CommentService {
 
     private User findUser(Long id) {
         return userRepository.findById(id).orElseThrow(() -> new UserNotFoundException(id));
+    }
+
+    private void requireCommentMutationAllowed(Comment comment, Long userId) {
+        Task task = comment.getTask();
+        requireProjectMember(task, userId);
+        if (comment.getAuthor() != null && userId.equals(comment.getAuthor().getId())) {
+            return;
+        }
+        Long projectId = requireTaskProjectId(task);
+        ProjectRole role =
+                projectMemberRepository
+                        .findById(new ProjectMemberId(projectId, userId))
+                        .map(member -> member.getRole())
+                        .orElseThrow(() ->
+                                new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
+        if (!PROJECT_EDIT_ROLES.contains(role)) {
+            throw new ResponseStatusException(
+                    HttpStatus.FORBIDDEN,
+                    "Only the comment author or project managers can modify this comment");
+        }
+    }
+
+    private void requireProjectMember(Task task, Long userId) {
+        Long projectId = requireTaskProjectId(task);
+        if (!projectMemberRepository.existsByProjectIdAndUserId(projectId, userId)) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Task not found");
+        }
+    }
+
+    private Long requireTaskProjectId(Task task) {
+        if (task == null || task.getProject() == null) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, "Task has no project");
+        }
+        return task.getProject().getId();
     }
 
     private void ensureProjectMember(Task task, User user) {

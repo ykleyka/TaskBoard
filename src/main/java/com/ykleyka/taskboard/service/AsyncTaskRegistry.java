@@ -24,10 +24,17 @@ public class AsyncTaskRegistry {
     private volatile int projectSummaryUnsafeCounter;
 
     public AsyncTaskDescriptor create(AsyncOperationType operationType) {
+        return create(operationType, null, null);
+    }
+
+    public AsyncTaskDescriptor create(
+            AsyncOperationType operationType, Long ownerUserId, Long projectId) {
         AsyncTaskDescriptor descriptor =
                 new AsyncTaskDescriptor(
                         java.util.UUID.randomUUID().toString(),
                         operationType,
+                        ownerUserId,
+                        projectId,
                         AsyncTaskStatus.SUBMITTED,
                         Instant.now(),
                         null,
@@ -52,6 +59,8 @@ public class AsyncTaskRegistry {
                 new AsyncTaskDescriptor(
                         current.id(),
                         current.operationType(),
+                        current.ownerUserId(),
+                        current.projectId(),
                         AsyncTaskStatus.RUNNING,
                         current.createdAt(),
                         current.startedAt() == null ? Instant.now() : current.startedAt(),
@@ -66,6 +75,8 @@ public class AsyncTaskRegistry {
                 new AsyncTaskDescriptor(
                         current.id(),
                         current.operationType(),
+                        current.ownerUserId(),
+                        current.projectId(),
                         AsyncTaskStatus.COMPLETED,
                         current.createdAt(),
                         current.startedAt() == null ? Instant.now() : current.startedAt(),
@@ -82,6 +93,8 @@ public class AsyncTaskRegistry {
                 new AsyncTaskDescriptor(
                         current.id(),
                         current.operationType(),
+                        current.ownerUserId(),
+                        current.projectId(),
                         AsyncTaskStatus.FAILED,
                         current.createdAt(),
                         current.startedAt() == null ? Instant.now() : current.startedAt(),
@@ -152,6 +165,8 @@ public class AsyncTaskRegistry {
     public record AsyncTaskDescriptor(
             String id,
             AsyncOperationType operationType,
+            Long ownerUserId,
+            Long projectId,
             AsyncTaskStatus status,
             Instant createdAt,
             Instant startedAt,

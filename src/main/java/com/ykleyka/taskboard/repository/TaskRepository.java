@@ -50,6 +50,33 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
             SELECT DISTINCT t
             FROM Task t
             JOIN t.project p
+            JOIN p.members member
+            LEFT JOIN t.assignee a
+            WHERE member.user.id = :userId
+              AND (:status IS NULL OR t.status = :status)
+              AND (:assignee IS NULL OR lower(a.username) = :assignee)
+            """)
+    Page<Task> findAllVisibleToUser(
+            @Param("userId") Long userId,
+            @Param("status") Status status,
+            @Param("assignee") String assignee,
+            Pageable pageable);
+
+    @EntityGraph(attributePaths = {"project", "creator", "assignee"})
+    @Query("""
+            SELECT DISTINCT t
+            FROM Task t
+            JOIN t.project p
+            JOIN p.members member
+            WHERE member.user.id = :userId
+            """)
+    List<Task> findAllVisibleToUserList(@Param("userId") Long userId);
+
+    @EntityGraph(attributePaths = {"project", "creator", "assignee"})
+    @Query("""
+            SELECT DISTINCT t
+            FROM Task t
+            JOIN t.project p
             JOIN t.tags tag
             LEFT JOIN t.assignee a
             WHERE p.id = :projectId

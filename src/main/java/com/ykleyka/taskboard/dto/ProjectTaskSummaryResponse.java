@@ -4,6 +4,7 @@ import com.ykleyka.taskboard.model.enums.Priority;
 import com.ykleyka.taskboard.model.enums.Status;
 import io.swagger.v3.oas.annotations.media.Schema;
 import java.time.Instant;
+import java.util.List;
 
 @Schema(description = "Short project task representation")
 public record ProjectTaskSummaryResponse(
@@ -17,6 +18,7 @@ public record ProjectTaskSummaryResponse(
         String assigneeUsername,
         Instant dueDate,
         Instant createdAt,
-        Instant updatedAt) {
+        Instant updatedAt,
+        List<TaskTagSummaryResponse> tags) {
 
 }
