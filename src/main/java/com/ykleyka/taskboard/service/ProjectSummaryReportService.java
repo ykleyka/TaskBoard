@@ -12,12 +12,14 @@ import java.util.Map;
 import java.util.Objects;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @RequiredArgsConstructor
 public class ProjectSummaryReportService {
     private final ProjectService projectService;
 
+    @Transactional(readOnly = true)
     public ProjectSummaryReportResponse buildProjectSummaryReport(Long projectId) {
         Instant now = Instant.now();
         ProjectDetailsResponse project = projectService.getProjectById(projectId);
@@ -45,7 +47,6 @@ public class ProjectSummaryReportService {
                         .filter(Objects::nonNull)
                         .min(Comparator.naturalOrder())
                         .orElse(null);
-
         return new ProjectSummaryReportResponse(
                 project.id(),
                 project.name(),

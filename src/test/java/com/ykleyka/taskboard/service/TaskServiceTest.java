@@ -26,9 +26,11 @@ import com.ykleyka.taskboard.exception.TaskNotFoundException;
 import com.ykleyka.taskboard.exception.UserNotFoundException;
 import com.ykleyka.taskboard.mapper.TaskMapper;
 import com.ykleyka.taskboard.model.Project;
+import com.ykleyka.taskboard.model.ProjectMember;
 import com.ykleyka.taskboard.model.Task;
 import com.ykleyka.taskboard.model.User;
 import com.ykleyka.taskboard.model.enums.Priority;
+import com.ykleyka.taskboard.model.enums.ProjectRole;
 import com.ykleyka.taskboard.model.enums.Status;
 import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.ProjectRepository;
@@ -189,6 +191,24 @@ class TaskServiceTest {
     }
 
     @Test
+    void getTasks_withCurrentUser_usesVisibleTasksAndNormalizedAssignee() {
+        Pageable pageable = PageRequest.of(0, 20);
+        Long currentUserId = 42L;
+        Task task = task(6L, project(1L), user(10L, "creator"), user(20L, "alice"));
+        TaskResponse mapped = taskResponse(6L, "Visible", Status.TODO, null, false);
+
+        when(repository.findAllVisibleToUser(currentUserId, Status.TODO, "alice", pageable))
+                .thenReturn(new PageImpl<>(List.of(task)));
+        when(mapper.toResponse(task)).thenReturn(mapped);
+
+        List<TaskResponse> result = service.getTasks(Status.TODO, " ALICE ", currentUserId, pageable);
+
+        assertEquals(1, result.size());
+        assertEquals("Visible", result.get(0).title());
+        verify(repository).findAllVisibleToUser(currentUserId, Status.TODO, "alice", pageable);
+    }
+
+    @Test
     void getTaskById_whenCacheHit_returnsCached() {
         TaskDetailsResponse cached = taskDetails(1L, "Cached");
         when(taskCache.getTaskDetails(1L)).thenReturn(cached);
@@ -220,6 +240,43 @@ class TaskServiceTest {
         when(repository.findDetailedById(3L)).thenReturn(Optional.empty());
 
         assertThrows(TaskNotFoundException.class, () -> service.getTaskById(3L));
+    }
+
+    @Test
+    void getTaskById_withCurrentUserAndCachedTask_requiresProjectMembership() {
+        Long taskId = 4L;
+        Long currentUserId = 44L;
+        TaskDetailsResponse cached = taskDetails(taskId, "Cached");
+
+        when(taskCache.getTaskDetails(taskId)).thenReturn(cached);
+        when(projectMemberRepository.existsByProjectIdAndUserId(cached.projectId(), currentUserId))
+                .thenReturn(false);
+
+        ResponseStatusException exception =
+                assertThrows(ResponseStatusException.class, () -> service.getTaskById(taskId, currentUserId));
+
+        assertEquals(404, exception.getStatusCode().value());
+        verify(repository, never()).findDetailedById(any());
+    }
+
+    @Test
+    void getTaskById_withCurrentUserAndCacheMiss_loadsDetailsWhenMember() {
+        Long taskId = 5L;
+        Long projectId = 6L;
+        Long currentUserId = 7L;
+        Task task = task(taskId, project(projectId), user(10L, "creator"), null);
+        TaskDetailsResponse mapped = taskDetails(taskId, "Member details");
+
+        when(taskCache.getTaskDetails(taskId)).thenReturn(null);
+        when(repository.findDetailedById(taskId)).thenReturn(Optional.of(task));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(true);
+        when(mapper.toDetailsResponse(task)).thenReturn(mapped);
+
+        TaskDetailsResponse actual = service.getTaskById(taskId, currentUserId);
+
+        assertEquals(mapped, actual);
+        verify(taskCache).putTaskDetails(taskId, mapped);
     }
 
     @Test
@@ -395,6 +452,44 @@ class TaskServiceTest {
     }
 
     @Test
+    void createTask_withCurrentUser_usesCurrentUserAsCreator() {
+        Long projectId = 1L;
+        Long currentUserId = 2L;
+        Long assigneeId = 3L;
+        TaskRequest request =
+                new TaskRequest(
+                        "Task",
+                        "Description",
+                        projectId,
+                        null,
+                        assigneeId,
+                        Status.IN_PROGRESS,
+                        Priority.HIGH,
+                        null);
+        Task mappedTask = new Task();
+        User currentUser = user(currentUserId, "current");
+        User assignee = user(assigneeId, "assignee");
+
+        when(projectRepository.findById(projectId)).thenReturn(Optional.of(project(projectId)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(true);
+        when(userRepository.findById(currentUserId)).thenReturn(Optional.of(currentUser));
+        when(userRepository.findById(assigneeId)).thenReturn(Optional.of(assignee));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, assigneeId))
+                .thenReturn(true);
+        when(mapper.toEntity(request)).thenReturn(mappedTask);
+        when(repository.save(mappedTask)).thenReturn(mappedTask);
+        when(mapper.toResponse(mappedTask))
+                .thenReturn(taskResponse(103L, "Task", Status.IN_PROGRESS, null, false));
+
+        service.createTask(request, currentUserId);
+
+        assertEquals(currentUser, mappedTask.getCreator());
+        assertEquals(assignee, mappedTask.getAssignee());
+        assertEquals(Status.IN_PROGRESS, mappedTask.getStatus());
+    }
+
+    @Test
     void updateTask_whenCreatorFromTaskAndAssigneeNull_updatesTask() {
         Long taskId = 10L;
         Long projectId = 1L;
@@ -429,12 +524,13 @@ class TaskServiceTest {
     }
 
     @Test
-    void updateTask_whenCreatorAndAssigneeProvided_usesProvidedUsers() {
+    void updateTask_whenCreatorAndAssigneeProvided_keepsOriginalCreator() {
         Long taskId = 11L;
         Long projectId = 1L;
         Long creatorId = 2L;
         Long assigneeId = 3L;
-        Task existing = task(taskId, project(projectId), user(9L, "old"), null);
+        User originalCreator = user(9L, "old");
+        Task existing = task(taskId, project(projectId), originalCreator, null);
         TaskRequest request =
                 new TaskRequest(
                         "Updated",
@@ -446,14 +542,13 @@ class TaskServiceTest {
                         Priority.HIGH,
                         null);
 
-        User creator = user(creatorId, "creator");
         User assignee = user(assigneeId, "assignee");
 
         when(repository.findById(taskId)).thenReturn(Optional.of(existing));
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(project(projectId)));
-        when(userRepository.findById(creatorId)).thenReturn(Optional.of(creator));
         when(userRepository.findById(assigneeId)).thenReturn(Optional.of(assignee));
-        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, creatorId)).thenReturn(true);
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, originalCreator.getId()))
+                .thenReturn(true);
         when(projectMemberRepository.existsByProjectIdAndUserId(projectId, assigneeId)).thenReturn(true);
         when(repository.save(existing)).thenReturn(existing);
         when(mapper.toResponse(existing))
@@ -461,7 +556,7 @@ class TaskServiceTest {
 
         service.updateTask(taskId, request);
 
-        assertEquals(creator, existing.getCreator());
+        assertEquals(originalCreator, existing.getCreator());
         assertEquals(assignee, existing.getAssignee());
         assertEquals(Status.IN_PROGRESS, existing.getStatus());
     }
@@ -485,19 +580,66 @@ class TaskServiceTest {
     }
 
     @Test
-    void updateTask_whenProvidedCreatorMissing_throwsUserNotFound() {
+    void updateTask_whenProvidedCreatorMissing_ignoresCreatorId() {
         Long taskId = 13L;
         Long projectId = 1L;
         Long creatorId = 99L;
-        Task existing = task(taskId, project(projectId), user(2L, "creator"), null);
+        User originalCreator = user(2L, "creator");
+        Task existing = task(taskId, project(projectId), originalCreator, null);
         TaskRequest request =
                 new TaskRequest("Title", "Desc", projectId, creatorId, null, null, Priority.MEDIUM, null);
 
         when(repository.findById(taskId)).thenReturn(Optional.of(existing));
         when(projectRepository.findById(projectId)).thenReturn(Optional.of(project(projectId)));
-        when(userRepository.findById(creatorId)).thenReturn(Optional.empty());
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, originalCreator.getId()))
+                .thenReturn(true);
+        when(repository.save(existing)).thenReturn(existing);
+        when(mapper.toResponse(existing)).thenReturn(taskResponse(taskId, "Title", Status.TODO, null, false));
 
-        assertThrows(UserNotFoundException.class, () -> service.updateTask(taskId, request));
+        service.updateTask(taskId, request);
+
+        assertEquals(originalCreator, existing.getCreator());
+        verify(userRepository, never()).findById(creatorId);
+    }
+
+    @Test
+    void updateTask_withCurrentUser_checksOldAndNewProjectMembership() {
+        Long taskId = 14L;
+        Long oldProjectId = 1L;
+        Long newProjectId = 2L;
+        Long currentUserId = 3L;
+        User creator = user(currentUserId, "creator");
+        Task existing = task(taskId, project(oldProjectId), creator, null);
+        TaskRequest request =
+                new TaskRequest(
+                        "Updated",
+                        "Desc",
+                        newProjectId,
+                        null,
+                        null,
+                        Status.IN_PROGRESS,
+                        Priority.HIGH,
+                        null);
+
+        when(repository.findById(taskId)).thenReturn(Optional.of(existing));
+        when(projectMemberRepository.existsByProjectIdAndUserId(oldProjectId, currentUserId))
+                .thenReturn(true);
+        when(projectMemberRepository.findById(any()))
+                .thenReturn(Optional.of(projectMember(oldProjectId, creator, ProjectRole.MEMBER)));
+        when(projectRepository.findById(newProjectId)).thenReturn(Optional.of(project(newProjectId)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(newProjectId, currentUserId))
+                .thenReturn(true);
+        when(repository.save(existing)).thenReturn(existing);
+        when(mapper.toResponse(existing))
+                .thenReturn(taskResponse(taskId, "Updated", Status.IN_PROGRESS, null, false));
+
+        service.updateTask(taskId, request, currentUserId);
+
+        assertEquals(newProjectId, existing.getProject().getId());
+        assertEquals(Status.IN_PROGRESS, existing.getStatus());
+        verify(projectMemberRepository).existsByProjectIdAndUserId(oldProjectId, currentUserId);
+        verify(projectMemberRepository, org.mockito.Mockito.atLeastOnce())
+                .existsByProjectIdAndUserId(newProjectId, currentUserId);
     }
 
     @Test
@@ -641,13 +783,15 @@ class TaskServiceTest {
         Long taskId = 90L;
         Long projectId = 91L;
         Long currentUserId = 92L;
-        Task existing = task(taskId, project(projectId), null, null);
+        Task existing = task(taskId, project(projectId), null, user(currentUserId, "assignee"));
         TaskPatchRequest request =
                 new TaskPatchRequest(null, null, null, null, Status.COMPLETED, null, null);
 
         when(repository.findById(taskId)).thenReturn(Optional.of(existing));
         when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
                 .thenReturn(true);
+        when(projectMemberRepository.findById(any()))
+                .thenReturn(Optional.of(projectMember(projectId, user(currentUserId, "assignee"), ProjectRole.MEMBER)));
         when(repository.save(existing)).thenReturn(existing);
         when(mapper.toResponse(existing))
                 .thenReturn(taskResponse(taskId, "Patched", Status.COMPLETED, null, false));
@@ -656,7 +800,51 @@ class TaskServiceTest {
 
         assertEquals(taskId, actual.id());
         assertEquals(Status.COMPLETED, existing.getStatus());
-        verify(projectMemberRepository).existsByProjectIdAndUserId(projectId, currentUserId);
+        verify(projectMemberRepository, org.mockito.Mockito.atLeastOnce())
+                .existsByProjectIdAndUserId(projectId, currentUserId);
+    }
+
+    @Test
+    void patchTask_withAssigneeChangingDeadline_throwsForbidden() {
+        Long taskId = 91L;
+        Long projectId = 92L;
+        Long assigneeId = 93L;
+        User assignee = user(assigneeId, "assignee");
+        Task existing = task(taskId, project(projectId), user(10L, "creator"), assignee);
+        TaskPatchRequest request =
+                new TaskPatchRequest(null, null, null, null, null, null, Instant.parse("2030-01-01T00:00:00Z"));
+
+        when(repository.findById(taskId)).thenReturn(Optional.of(existing));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, assigneeId)).thenReturn(true);
+        when(projectMemberRepository.findById(any()))
+                .thenReturn(Optional.of(projectMember(projectId, assignee, ProjectRole.MEMBER)));
+
+        ResponseStatusException exception =
+                assertThrows(ResponseStatusException.class, () -> service.patchTask(taskId, request, assigneeId));
+
+        assertEquals(403, exception.getStatusCode().value());
+        verify(repository, never()).save(any(Task.class));
+    }
+
+    @Test
+    void deleteTask_withMemberWhoIsNotCreator_throwsForbidden() {
+        Long taskId = 92L;
+        Long projectId = 93L;
+        Long currentUserId = 94L;
+        User member = user(currentUserId, "member");
+        Task existing = task(taskId, project(projectId), user(10L, "creator"), null);
+
+        when(repository.findById(taskId)).thenReturn(Optional.of(existing));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(true);
+        when(projectMemberRepository.findById(any()))
+                .thenReturn(Optional.of(projectMember(projectId, member, ProjectRole.MEMBER)));
+
+        ResponseStatusException exception =
+                assertThrows(ResponseStatusException.class, () -> service.deleteTask(taskId, currentUserId));
+
+        assertEquals(403, exception.getStatusCode().value());
+        verify(repository, never()).delete(any(Task.class));
     }
 
     @Test
@@ -684,6 +872,24 @@ class TaskServiceTest {
     }
 
     @Test
+    void deleteTask_withCurrentUserAndMissingMembership_hidesTask() {
+        Long taskId = 32L;
+        Long projectId = 33L;
+        Long currentUserId = 34L;
+        Task existing = task(taskId, project(projectId), user(2L, "creator"), null);
+
+        when(repository.findById(taskId)).thenReturn(Optional.of(existing));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(false);
+
+        ResponseStatusException exception =
+                assertThrows(ResponseStatusException.class, () -> service.deleteTask(taskId, currentUserId));
+
+        assertEquals(404, exception.getStatusCode().value());
+        verify(repository, never()).delete(any(Task.class));
+    }
+
+    @Test
     void searchTasksByProjectIdAndTag_whenCacheMiss_usesNormalizedInputs() {
         Long projectId = 40L;
         Pageable pageable = PageRequest.of(0, 20, org.springframework.data.domain.Sort.by("id"));
@@ -697,7 +903,12 @@ class TaskServiceTest {
         when(mapper.toResponse(task)).thenReturn(mapped);
 
         List<TaskResponse> result =
-                service.searchTasksByProjectIdAndTag(projectId, "  BackEnd ", Status.TODO, " BoB ", 0, 20);
+                service.searchTasksByProjectIdAndTag(
+                        projectId,
+                        "  BackEnd ",
+                        Status.TODO,
+                        " BoB ",
+                        PageRequest.of(0, 20));
 
         assertEquals(1, result.size());
         verify(repository).searchByProjectIdAndTag(projectId, "backend", Status.TODO, "%bob%", pageable);
@@ -710,7 +921,7 @@ class TaskServiceTest {
         when(taskCache.getQuery(any(TaskCache.TaskQueryKey.class))).thenReturn(List.of(cached));
 
         List<TaskResponse> result =
-                service.searchTasksByProjectIdAndTag(projectId, null, null, " ", 0, 20);
+                service.searchTasksByProjectIdAndTag(projectId, null, null, " ", PageRequest.of(0, 20));
 
         assertEquals(1, result.size());
         verify(repository, never()).searchByProjectIdAndTag(any(), any(), any(), any(), any());
@@ -733,7 +944,13 @@ class TaskServiceTest {
         when(mapper.toResponse(task)).thenReturn(mapped);
 
         List<TaskResponse> result =
-                service.searchOverdueTasksByProjectIdAndTagNative(projectId, "TAG", null, " ", null, 0, 20);
+                service.searchOverdueTasksByProjectIdAndTagNative(
+                        projectId,
+                        "TAG",
+                        null,
+                        " ",
+                        null,
+                        PageRequest.of(0, 20));
 
         assertEquals(1, result.size());
         verify(taskCache, never()).putQuery(any(), any());
@@ -761,7 +978,12 @@ class TaskServiceTest {
 
         List<TaskResponse> result =
                 service.searchOverdueTasksByProjectIdAndTagNative(
-                        projectId, "TAG", Status.IN_PROGRESS, " Alex ", dueBefore, 0, 20);
+                        projectId,
+                        "TAG",
+                        Status.IN_PROGRESS,
+                        " Alex ",
+                        dueBefore,
+                        PageRequest.of(0, 20));
 
         assertEquals(1, result.size());
         verify(taskCache).putQuery(any(TaskCache.TaskQueryKey.class), any());
@@ -776,7 +998,12 @@ class TaskServiceTest {
 
         List<TaskResponse> result =
                 service.searchOverdueTasksByProjectIdAndTagNative(
-                        projectId, "Tag", Status.TODO, "bob", dueBefore, 0, 20);
+                        projectId,
+                        "Tag",
+                        Status.TODO,
+                        "bob",
+                        dueBefore,
+                        PageRequest.of(0, 20));
 
         assertEquals(1, result.size());
         verify(repository, never()).searchOverdueByProjectIdAndTagNative(
@@ -810,6 +1037,14 @@ class TaskServiceTest {
         user.setId(id);
         user.setUsername(username);
         return user;
+    }
+
+    private ProjectMember projectMember(Long projectId, User user, ProjectRole role) {
+        ProjectMember member = new ProjectMember();
+        member.setProject(project(projectId));
+        member.setUser(user);
+        member.setRole(role);
+        return member;
     }
 
     private TaskResponse taskResponse(

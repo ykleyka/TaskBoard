@@ -67,13 +67,17 @@ public class TagService {
 
     @Transactional
     public TagResponse assignTagToTask(Long taskId, Long tagId, Long currentUserId) {
-        requireTaskMember(findTask(taskId), currentUserId);
-        return assignTagToTask(taskId, tagId);
+        Task task = findTask(taskId);
+        requireTaskMember(task, currentUserId);
+        return assignTagToTaskInternal(task, tagId);
     }
 
     @Transactional
     public TagResponse assignTagToTask(Long taskId, Long tagId) {
-        Task task = findTask(taskId);
+        return assignTagToTaskInternal(findTask(taskId), tagId);
+    }
+
+    private TagResponse assignTagToTaskInternal(Task task, Long tagId) {
         Tag tag = findTag(tagId);
 
         boolean hasTag =
@@ -83,20 +87,24 @@ public class TagService {
             task.setUpdatedAt(Instant.now());
             taskRepository.save(task);
             tagCache.invalidate();
-            taskCache.invalidateTask(taskId);
+            taskCache.invalidateTask(task.getId());
         }
         return mapper.toResponse(tag);
     }
 
     @Transactional
     public TagResponse removeTagFromTask(Long taskId, Long tagId, Long currentUserId) {
-        requireTaskMember(findTask(taskId), currentUserId);
-        return removeTagFromTask(taskId, tagId);
+        Task task = findTask(taskId);
+        requireTaskMember(task, currentUserId);
+        return removeTagFromTaskInternal(task, tagId);
     }
 
     @Transactional
     public TagResponse removeTagFromTask(Long taskId, Long tagId) {
-        Task task = findTask(taskId);
+        return removeTagFromTaskInternal(findTask(taskId), tagId);
+    }
+
+    private TagResponse removeTagFromTaskInternal(Task task, Long tagId) {
         Tag tag = findTag(tagId);
 
         boolean removed = task.getTags().removeIf(existingTag -> existingTag.getId().equals(tagId));
@@ -104,7 +112,7 @@ public class TagService {
             task.setUpdatedAt(Instant.now());
             taskRepository.save(task);
             tagCache.invalidate();
-            taskCache.invalidateTask(taskId);
+            taskCache.invalidateTask(task.getId());
         }
         return mapper.toResponse(tag);
     }

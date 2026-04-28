@@ -44,8 +44,18 @@ public class UserService {
         return userRepository.findAll(pageable).getContent();
     }
 
+    public List<User> getUsers(Long currentUserId, Pageable pageable) {
+        return userRepository.findAllVisibleToUser(currentUserId, pageable).getContent();
+    }
+
     public User getUserById(Long id) {
         return findUser(id);
+    }
+
+    public User getUserById(Long id, Long currentUserId) {
+        return userRepository
+                .findVisibleToUserById(id, currentUserId)
+                .orElseThrow(() -> new UserNotFoundException(id));
     }
 
     public User createUser(User user) {

@@ -13,7 +13,7 @@ public class AsyncConfig {
     public Executor taskBoardAsyncExecutor() {
         ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
         executor.setCorePoolSize(4);
-        executor.setMaxPoolSize(8);
+        executor.setMaxPoolSize(16);
         executor.setQueueCapacity(1_000);
         executor.setThreadNamePrefix("taskboard-async-");
         executor.initialize();

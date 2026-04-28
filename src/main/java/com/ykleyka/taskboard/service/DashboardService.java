@@ -10,9 +10,10 @@ import com.ykleyka.taskboard.model.enums.Status;
 import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.ProjectRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
-import java.time.ZoneOffset;
+import java.time.ZoneId;
 import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
@@ -34,8 +35,9 @@ public class DashboardService {
 
     public DashboardResponse getDashboard(Long currentUserId) {
         Instant now = Instant.now();
-        Instant todayStart = LocalDate.now(ZoneOffset.UTC).atStartOfDay().toInstant(ZoneOffset.UTC);
-        Instant tomorrowStart = todayStart.plusSeconds(24 * 60 * 60);
+        ZoneId zone = ZoneId.systemDefault();
+        Instant todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant();
+        Instant tomorrowStart = todayStart.plus(Duration.ofDays(1));
         List<Task> tasks = taskRepository.findAllVisibleToUserList(currentUserId);
 
         long completedTasks = tasks.stream()

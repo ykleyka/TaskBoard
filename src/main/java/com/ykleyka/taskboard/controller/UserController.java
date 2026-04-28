@@ -43,14 +43,17 @@ public class UserController {
     @Operation(summary = "List users", description = "Returns a paginated list of users.")
     @GetMapping
     public List<UserResponse> getUsers(
+            @AuthenticationPrincipal AuthenticatedUser currentUser,
             @ParameterObject @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
-        return service.getUsers(pageable).stream().map(mapper::toResponse).toList();
+        return service.getUsers(currentUser.id(), pageable).stream().map(mapper::toResponse).toList();
     }
 
     @Operation(summary = "Get user by id", description = "Returns a single user by identifier.")
     @GetMapping("/{id}")
-    public UserResponse getUserById(@PathVariable @Positive Long id) {
-        return mapper.toResponse(service.getUserById(id));
+    public UserResponse getUserById(
+            @PathVariable @Positive Long id,
+            @AuthenticationPrincipal AuthenticatedUser currentUser) {
+        return mapper.toResponse(service.getUserById(id, currentUser.id()));
     }
 
     @Operation(summary = "Create user", description = "Creates a new user.")

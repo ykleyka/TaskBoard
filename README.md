@@ -1,25 +1,33 @@
-w# TaskBoard
+# TaskBoard
 
-TaskBoard is a Spring Boot REST API for managing users, projects, project members, tasks, tags, and comments.
+TaskBoard — это full-stack система для управления проектами и задачами.
 
-The project demonstrates a layered backend architecture with validation, global error handling, caching, asynchronous business operations, concurrency-safe counters, and load testing.
+Проект состоит из:
 
-## Features
+- backend на Spring Boot
+- frontend SPA на React + Vite
+- PostgreSQL как основной БД
+- Swagger / OpenAPI для ручного тестирования API
 
-- CRUD operations for users, projects, tasks, tags, and comments
-- JWT-based registration and login for SPA clients
-- Membership-scoped project, task, tag, comment, and async report access
-- Project member management with roles
-- Project permissions for `OWNER`, `MANAGER`, and `MEMBER`
-- Bulk member assignment in a single transaction
-- Task search endpoints with filtering
-- Native overdue task query
-- Asynchronous project summary report generation
-- Async task status tracking by `asyncTaskId`
-- Thread-safe and unsafe counters for concurrency demonstration
-- OpenAPI / Swagger UI
+Система поддерживает пользователей, проекты, участников проекта, задачи, теги, комментарии, JWT-аутентификацию и асинхронную генерацию project summary report.
 
-## Tech Stack
+## Что умеет проект
+
+- регистрация и логин с JWT Bearer token
+- SPA-клиент для работы с проектами и задачами
+- CRUD для пользователей, проектов, задач, тегов и комментариев
+- роли в проекте: `OWNER`, `MANAGER`, `MEMBER`
+- назначение участников в проект и bulk-добавление участников
+- many-to-many связь `Task <-> Tag`
+- one-to-many связи `Project -> Task`, `Task -> Comment`
+- фильтрация задач на фронте и search endpoints на backend
+- асинхронная генерация summary report по проекту
+- runtime-метрики async subsystem
+- Swagger UI для проверки API
+
+## Стек
+
+### Backend
 
 - Java 21
 - Spring Boot 4.0.2
@@ -31,106 +39,141 @@ The project demonstrates a layered backend architecture with validation, global 
 - PostgreSQL
 - Lombok
 - springdoc-openapi
+
+### Frontend
+
+- React 19
+- TypeScript
+- Vite 6
+- lucide-react
+
+### Тесты и качество
+
 - JUnit 5
 - Mockito
 - JaCoCo
-- Sonar
+- SonarCloud
 - JMeter
 
-## Project Structure
+## Структура репозитория
 
 ```text
-src/main/java/com/ykleyka/taskboard
-├── aop
-├── cache
-├── config
-├── controller
-├── dto
-├── exception
-├── mapper
-├── model
-├── repository
-├── service
-└── validation
+TaskBoard
+├── docs                    # документация проекта и API
+├── frontend                # React SPA
+├── load-tests              # JMeter сценарии
+├── src/main/java/com/ykleyka/taskboard
+│   ├── aop
+│   ├── cache
+│   ├── config
+│   ├── controller
+│   ├── dto
+│   ├── exception
+│   ├── mapper
+│   ├── model
+│   ├── repository
+│   ├── security
+│   ├── service
+│   └── validation
+├── src/main/resources
+├── logs
+├── pom.xml
+└── README.md
 ```
 
-## Authentication And Authorization
+## Архитектура на уровне идей
 
-Use `POST /api/auth/register` to create an account or `POST /api/auth/login` to sign in.
-Both endpoints return a Bearer token and the user profile.
+### Backend
 
-Authenticated requests must include:
+Backend построен по классической слоистой схеме:
+
+- `controller` — HTTP endpoints
+- `service` — бизнес-логика
+- `repository` — доступ к БД
+- `mapper` — преобразование entity <-> DTO
+- `security` — JWT и текущий пользователь
+- `cache` — in-memory кэши
+
+### Frontend
+
+Frontend — это SPA, которая:
+
+- логинится через `/api/auth/login` или `/api/auth/register`
+- хранит `accessToken` на клиенте
+- подставляет `Authorization: Bearer <token>` во все API-запросы
+- работает с проектами, задачами, комментариями, тегами и отчетами
+
+## Аутентификация и авторизация
+
+TaskBoard использует stateless JWT-аутентификацию.
+
+### Публичные endpoints
+
+Без токена доступны:
+
+- `POST /api/auth/register`
+- `POST /api/auth/login`
+- `GET /swagger-ui.html`
+- `GET /v3/api-docs`
+
+### Защищенные endpoints
+
+Все остальные endpoints требуют Bearer token:
 
 ```http
 Authorization: Bearer <accessToken>
 ```
 
-Current user endpoint:
+### Как это работает
 
-`GET /api/auth/me`
+1. Пользователь регистрируется или логинится.
+2. Backend возвращает `accessToken`.
+3. Клиент отправляет токен в заголовке `Authorization`.
+4. `JwtAuthenticationFilter` валидирует токен и кладет текущего пользователя в security context.
+5. Контроллеры получают пользователя через `@AuthenticationPrincipal`.
 
-SPA-oriented request bodies no longer need to send `ownerId`, `creatorId`, or `authorId`.
-For authenticated clients, the backend derives these values from the Bearer token.
+### Роли в проекте
 
-Project visibility and editing are scoped by project membership:
+- `OWNER` — полный контроль над проектом, удаление проекта, управление ролями
+- `MANAGER` — редактирование проекта и задач, управление обычными участниками
+- `MEMBER` — доступ на чтение и ограниченные действия внутри проекта
 
-- `OWNER`: full project control, project deletion, role changes, and member management.
-- `MANAGER`: project/task editing and regular member assignment/removal.
-- `MEMBER`: project/task/comment read access and own comment editing.
+Важно: membership-проверки делаются на backend. Для чужих проектов и задач backend часто возвращает `404`, а не `403`, чтобы не раскрывать существование ресурса.
 
-Direct requests to projects or tasks outside the user's memberships are hidden with `404`.
-Insufficient role permissions return `403`.
+## Асинхронные отчеты
 
-## Asynchronous Report Generation
+В проекте есть async subsystem для генерации `PROJECT_SUMMARY_REPORT`.
 
-TaskBoard includes an asynchronous business operation for generating a project summary report.
-
-### Start report generation
+### Запуск отчета
 
 `POST /api/projects/{id}/summary-report`
 
-Response:
+Ответ:
 
 ```json
 {
   "asyncTaskId": "4d7e8147-0a50-44c7-a6b1-90dbf4187c07",
   "operationType": "PROJECT_SUMMARY_REPORT",
   "status": "SUBMITTED",
-  "createdAt": "2026-04-14T12:00:00Z"
+  "createdAt": "2026-04-21T09:00:00Z"
 }
 ```
 
-### Check task status
+### Проверка статуса
 
 `GET /api/async-tasks/{asyncTaskId}`
 
-The task lifecycle is:
+Жизненный цикл async-задачи:
 
-`SUBMITTED -> RUNNING -> COMPLETED | FAILED`
+```text
+SUBMITTED -> RUNNING -> COMPLETED | FAILED
+```
 
-### Report contents
-
-The generated report contains:
-
-- project id, name, and description
-- report generation timestamp
-- members count
-- tasks count
-- completed tasks count
-- overdue tasks count
-- unassigned tasks count
-- high-priority tasks count
-- nearest due date
-- tasks grouped by status
-- project members
-
-## Concurrency Metrics
-
-The endpoint below exposes async execution metrics and counters used for concurrency testing:
+### Метрики async subsystem
 
 `GET /api/async-tasks/metrics`
 
-Response fields:
+Возвращает:
 
 - `submittedCount`
 - `runningCount`
@@ -140,28 +183,143 @@ Response fields:
 - `projectSummaryAtomicCounter`
 - `raceConditionDetected`
 
-`projectSummaryAtomicCounter` is updated with `AtomicInteger`.
+В проекте специально оставлен `unsafe` counter для демонстрации race condition под нагрузкой.
 
-`projectSummaryUnsafeCounter` uses a regular increment and is intentionally left non-thread-safe to demonstrate race conditions under concurrent load.
+## Основные сущности
 
-## API Overview
+### User
 
-All endpoints except `POST /api/auth/register`, `POST /api/auth/login`, Swagger UI, and OpenAPI docs require authentication.
+Пользователь системы.
+
+### Project
+
+Проект, внутри которого живут участники и задачи.
+
+### ProjectMember
+
+Связь пользователя и проекта с ролью `OWNER` / `MANAGER` / `MEMBER`.
+
+### Task
+
+Задача проекта. Может иметь:
+
+- создателя
+- исполнителя
+- дедлайн
+- приоритет
+- статус
+- набор тегов
+- комментарии
+
+### Tag
+
+Тег задачи. Связь с задачами many-to-many.
+
+### Comment
+
+Комментарий к задаче. Связь one-to-many от задачи.
+
+## Быстрый старт
+
+### Что нужно
+
+- Java 21
+- Node.js 20+ и npm
+- PostgreSQL
+
+### 1. Настрой переменные
+
+В корне проекта создай `.env`:
+
+```properties
+DB_PASSWORD=your_password
+JWT_SECRET=replace-with-a-long-random-secret
+FRONTEND_ORIGINS=http://localhost:5173,http://127.0.0.1:5173
+FRONTEND_URL=http://localhost:5173
+```
+
+### 2. Проверь backend-конфиг
+
+Основные настройки находятся в [src/main/resources/application.properties](/C:/Users/Administrator/IdeaProjects/TaskBoard/src/main/resources/application.properties):
+
+```properties
+spring.datasource.url=jdbc:postgresql://localhost:5432/postgres
+spring.datasource.username=postgres
+spring.datasource.password=${DB_PASSWORD}
+spring.jpa.hibernate.ddl-auto=update
+
+taskboard.security.jwt-secret=${JWT_SECRET:change-me-taskboard-dev-secret}
+taskboard.security.token-ttl=PT24H
+taskboard.cors.allowed-origins=${FRONTEND_ORIGINS:http://localhost:5173,http://127.0.0.1:5173,http://localhost:3000,http://127.0.0.1:3000}
+taskboard.frontend.url=${FRONTEND_URL:http://localhost:5173}
+```
+
+Если у тебя другая БД или другой порт, меняй здесь.
+
+## Запуск backend
+
+### Windows
+
+```powershell
+.\mvnw.cmd spring-boot:run
+```
+
+### Linux / macOS
+
+```bash
+./mvnw spring-boot:run
+```
+
+По умолчанию backend будет доступен на:
+
+- [http://localhost:8080](http://localhost:8080)
+
+## Запуск frontend
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+По умолчанию frontend будет доступен на:
+
+- [http://localhost:5173](http://localhost:5173)
+
+Если backend работает не на `http://localhost:8080`, задай переменную:
+
+```powershell
+$env:VITE_API_BASE_URL="http://localhost:8081"
+npm run dev
+```
+
+## Важный нюанс про запуск
+
+В режиме разработки обычно нужно поднимать **два процесса**:
+
+1. Spring Boot backend
+2. Vite dev server для frontend
+
+Это нормальная схема для dev-режима. Vite нужен для HMR и быстрой фронтенд-разработки.
+
+## Swagger и API docs
+
+После запуска backend:
+
+- [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
+- [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
+
+Подробное описание API для проекта лежит в:
+
+- [docs/API.md](/C:/Users/Administrator/IdeaProjects/TaskBoard/docs/API.md)
+
+## Основные endpoints
 
 ### Auth
 
 - `POST /api/auth/register`
 - `POST /api/auth/login`
 - `GET /api/auth/me`
-
-### Users
-
-- `GET /api/users`
-- `GET /api/users/{id}`
-- `POST /api/users`
-- `PUT /api/users/{id}`
-- `PATCH /api/users/{id}`
-- `DELETE /api/users/{id}`
 
 ### Projects
 
@@ -172,7 +330,7 @@ All endpoints except `POST /api/auth/register`, `POST /api/auth/login`, Swagger 
 - `PATCH /api/projects/{id}`
 - `DELETE /api/projects/{id}`
 
-### Project Members
+### Project members
 
 - `GET /api/projects/{id}/members`
 - `GET /api/projects/{id}/members/{userId}`
@@ -180,12 +338,6 @@ All endpoints except `POST /api/auth/register`, `POST /api/auth/login`, Swagger 
 - `POST /api/projects/{id}/members/bulk`
 - `PUT /api/projects/{id}/members/{userId}`
 - `DELETE /api/projects/{id}/members/{userId}`
-
-### Async Tasks
-
-- `POST /api/projects/{id}/summary-report`
-- `GET /api/async-tasks/{asyncTaskId}`
-- `GET /api/async-tasks/metrics`
 
 ### Tasks
 
@@ -212,107 +364,61 @@ All endpoints except `POST /api/auth/register`, `POST /api/auth/login`, Swagger 
 - `PUT /api/comments/{id}`
 - `DELETE /api/comments/{id}`
 
-## Configuration
+### Async tasks
 
-Create a `.env` file in the project root:
+- `POST /api/projects/{id}/summary-report`
+- `GET /api/async-tasks/{asyncTaskId}`
+- `GET /api/async-tasks/metrics`
 
-```properties
-DB_PASSWORD=your_password
-JWT_SECRET=replace-with-a-long-random-secret
-FRONTEND_ORIGINS=http://localhost:5173,http://localhost:3000
-```
+## Тесты
 
-Default database settings are defined in `src/main/resources/application.properties`:
-
-```properties
-spring.datasource.url=jdbc:postgresql://localhost:5432/postgres
-spring.datasource.username=postgres
-spring.datasource.password=${DB_PASSWORD}
-spring.jpa.hibernate.ddl-auto=update
-taskboard.security.jwt-secret=${JWT_SECRET:change-me-taskboard-dev-secret}
-taskboard.security.token-ttl=PT24H
-taskboard.cors.allowed-origins=${FRONTEND_ORIGINS:http://localhost:5173,http://localhost:3000}
-```
-
-## Running the Application
-
-### Linux / macOS
-
-```bash
-./mvnw spring-boot:run
-```
-
-### Windows
+Полный запуск тестов:
 
 ```powershell
-.\mvnw.cmd spring-boot:run
+.\mvnw.cmd test
 ```
 
-### Frontend SPA
+Проверка с JaCoCo:
 
 ```powershell
-cd frontend
-npm install
-npm run dev
+.\mvnw.cmd verify
 ```
 
-Default frontend URL:
-
-- [http://127.0.0.1:5173](http://127.0.0.1:5173)
-
-Use `VITE_API_BASE_URL` if the backend is not running on `http://localhost:8080`.
-
-## OpenAPI
-
-After startup:
-
-- [http://localhost:8080/swagger-ui.html](http://localhost:8080/swagger-ui.html)
-- [http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
-
-Detailed API notes for frontend clients:
-
-- [docs/API.md](docs/API.md)
-
-## Testing
-
-Run unit tests:
-
-```bash
-./mvnw test
-```
-
-Generate JaCoCo report:
-
-```bash
-./mvnw verify
-```
-
-JaCoCo report path:
+Отчет JaCoCo:
 
 ```text
 target/site/jacoco/jacoco.xml
 ```
 
-## Load Testing
+## Нагрузочное тестирование
 
-The repository contains a JMeter test plan for asynchronous report submission:
+В проекте есть JMeter-сценарий для async report:
 
-- `load-tests/project-summary-report-loadtest.jmx`
+- [load-tests/project-summary-report-loadtest.jmx](/C:/Users/Administrator/IdeaProjects/TaskBoard/load-tests/project-summary-report-loadtest.jmx)
 
-## Logging
+## Логи
 
-- configuration: `src/main/resources/logback-spring.xml`
-- active log: `logs/taskboard.log`
-- archived logs: `logs/archive`
+- конфиг логирования: [src/main/resources/logback-spring.xml](/C:/Users/Administrator/IdeaProjects/TaskBoard/src/main/resources/logback-spring.xml)
+- текущий лог: [logs/taskboard.log](/C:/Users/Administrator/IdeaProjects/TaskBoard/logs/taskboard.log)
+- архив логов: [logs/archive](/C:/Users/Administrator/IdeaProjects/TaskBoard/logs/archive)
 
-Service execution time is additionally logged through AOP.
+Дополнительно в проекте есть AOP-логирование времени выполнения service-методов.
 
-## Notes
+## Известные свойства текущей реализации
 
-- Auth tokens are stateless Bearer tokens signed with `taskboard.security.jwt-secret`
-- Caches are in-memory
-- The unsafe counter is included specifically for concurrency demonstration and is not intended to be used as a reliable business metric
+- токены stateless, refresh token нет
+- кэши in-memory, не распределенные
+- async counters частично сделаны специально для демонстрации concurrency behavior
+- frontend в dev-режиме запускается отдельно от backend
+- built frontend пока не встроен в Spring Boot как production bundle
+
+## Полезные файлы
+
+- API contract: [docs/API.md](/C:/Users/Administrator/IdeaProjects/TaskBoard/docs/API.md)
+- backend entrypoint: [src/main/java/com/ykleyka/taskboard/TaskBoardApplication.java](/C:/Users/Administrator/IdeaProjects/TaskBoard/src/main/java/com/ykleyka/taskboard/TaskBoardApplication.java)
+- frontend app: [frontend/src/App.tsx](/C:/Users/Administrator/IdeaProjects/TaskBoard/frontend/src/App.tsx)
+- frontend API client: [frontend/src/api.ts](/C:/Users/Administrator/IdeaProjects/TaskBoard/frontend/src/api.ts)
 
 ## SonarCloud
 
-[View project in SonarCloud](https://sonarcloud.io/summary/new_code?id=ykleyka_TaskBoard&branch=master)
+[TaskBoard in SonarCloud](https://sonarcloud.io/summary/new_code?id=ykleyka_TaskBoard&branch=master)

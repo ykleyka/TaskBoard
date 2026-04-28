@@ -10,7 +10,15 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 public interface ProjectRepository extends JpaRepository<Project, Long> {
-    @EntityGraph(attributePaths = {"members", "members.user", "tasks", "tasks.creator", "tasks.assignee"})
+    @EntityGraph(
+            attributePaths = {
+                "members",
+                "members.user",
+                "tasks",
+                "tasks.creator",
+                "tasks.assignee",
+                "tasks.tags"
+            })
     Optional<Project> findDetailedById(Long id);
 
     @Query("""

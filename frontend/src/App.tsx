@@ -51,7 +51,7 @@ const ROLES: ProjectRole[] = ["OWNER", "MANAGER", "MEMBER"];
 
 type Language = "en" | "ru";
 type View = "dashboard" | "board" | "reports" | "team" | "profile";
-type Modal = "project" | "task" | "member" | "taskDetails" | "profile" | null;
+type Modal = "project" | "task" | "member" | "taskDetails" | "profile" | "deleteProject" | null;
 
 const STATUS_LABELS: Record<Language, Record<TaskStatus, string>> = {
   en: {
@@ -810,6 +810,7 @@ export default function App() {
   const [report, setReport] =
     useState<AsyncTaskStatusResponse<ProjectSummaryReportResponse> | null>(null);
   const [metrics, setMetrics] = useState<AsyncTaskMetricsResponse | null>(null);
+  const [projectFormMode, setProjectFormMode] = useState<"create" | "edit">("create");
   const [projectForm, setProjectForm] = useState({ name: "", description: "" });
   const [taskForm, setTaskForm] = useState({
     title: "",
@@ -835,6 +836,8 @@ export default function App() {
   const [deadlineDraft, setDeadlineDraft] = useState("");
   const [taskDetailError, setTaskDetailError] = useState<string | null>(null);
   const [commentText, setCommentText] = useState("");
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+  const [editingCommentText, setEditingCommentText] = useState("");
   const [tagSelect, setTagSelect] = useState("");
   const [newTagName, setNewTagName] = useState("");
 
@@ -975,13 +978,57 @@ export default function App() {
     setReport(null);
   }
 
+  function openCreateProjectModal() {
+    setProjectFormMode("create");
+    setProjectForm({ name: "", description: "" });
+    setModal("project");
+  }
+
+  function openEditProjectModal() {
+    if (!selectedProject) {
+      return;
+    }
+    setProjectFormMode("edit");
+    setProjectForm({
+      name: selectedProject.name,
+      description: selectedProject.description ?? ""
+    });
+    setModal("project");
+  }
+
   async function submitProject(event: FormEvent) {
     event.preventDefault();
     try {
+      if (projectFormMode === "edit" && selectedProjectId) {
+        await api.patchProject(selectedProjectId, projectForm);
+        setProjectForm({ name: "", description: "" });
+        setProjectFormMode("create");
+        setModal(null);
+        await bootstrap(selectedProjectId);
+        setView("board");
+        return;
+      }
       const created = await api.createProject(projectForm);
       setProjectForm({ name: "", description: "" });
+      setProjectFormMode("create");
       setModal(null);
       await bootstrap(created.id);
+      setView("board");
+    } catch (error) {
+      setNotice(errorMessage(error));
+    }
+  }
+
+  async function deleteProject() {
+    if (!selectedProjectId) {
+      return;
+    }
+    try {
+      await api.deleteProject(selectedProjectId);
+      setSelectedProject(null);
+      setSelectedProjectId(null);
+      setModal(null);
+      await bootstrap();
       setView("board");
     } catch (error) {
       setNotice(errorMessage(error));
@@ -1201,12 +1248,25 @@ export default function App() {
       setDeadlineDraft(toInputDateTime(task.dueDate));
       setTaskDetailError(null);
       setCommentText("");
+      setEditingCommentId(null);
+      setEditingCommentText("");
       setTagSelect("");
       setNewTagName("");
       setModal("taskDetails");
     } catch (error) {
       setNotice(errorMessage(error));
     }
+  }
+
+  function startCommentEdit(commentId: number, text: string) {
+    setEditingCommentId(commentId);
+    setEditingCommentText(text);
+    setTaskDetailError(null);
+  }
+
+  function cancelCommentEdit() {
+    setEditingCommentId(null);
+    setEditingCommentText("");
   }
 
   async function submitComment(event: FormEvent) {
@@ -1234,6 +1294,21 @@ export default function App() {
     try {
       await api.deleteComment(commentId);
       setTaskDetailError(null);
+      await openTask(activeTask.id);
+    } catch (error) {
+      setTaskDetailError(errorMessage(error));
+    }
+  }
+
+  async function saveCommentEdit() {
+    if (!editingCommentId || !activeTask || !editingCommentText.trim()) {
+      return;
+    }
+    try {
+      await api.updateComment(editingCommentId, editingCommentText.trim());
+      setTaskDetailError(null);
+      setEditingCommentId(null);
+      setEditingCommentText("");
       await openTask(activeTask.id);
     } catch (error) {
       setTaskDetailError(errorMessage(error));
@@ -1356,25 +1431,18 @@ export default function App() {
 
   return (
     <div className="app-shell">
-      <Sidebar
-        copy={copy}
-        currentView={view}
-        onChangeView={setView}
-        onCreateTask={() => {
-          setTaskForm((form) => ({
-            ...form,
-            projectId: selectedProjectId ? String(selectedProjectId) : form.projectId
-          }));
-          setModal("task");
-        }}
-        onLogout={logout}
-      />
+        <Sidebar
+          copy={copy}
+          currentView={view}
+          onChangeView={setView}
+          onLogout={logout}
+        />
       <div className="content-shell">
         <Topbar
           copy={copy}
           currentUser={currentUser}
           language={language}
-          onCreateProject={() => setModal("project")}
+          onCreateProject={openCreateProjectModal}
           onOpenProfile={() => setView("profile")}
           onLanguageChange={setLanguage}
         />
@@ -1406,7 +1474,7 @@ export default function App() {
                     void loadProject(id);
                     setView("board");
                   }}
-                  onCreateProject={() => setModal("project")}
+                  onCreateProject={openCreateProjectModal}
                   onOpenBoard={() => setView("board")}
                   onOpenTask={(taskId) => void openTask(taskId)}
                 />
@@ -1421,8 +1489,11 @@ export default function App() {
                   selectedProjectId={selectedProjectId}
                   loading={loadingProject}
                   canEdit={canEditSelectedProject}
+                  canDeleteProject={currentRole === "OWNER"}
                   statusLabels={statusLabels}
                   onSelectProject={(id) => void loadProject(id)}
+                  onEditProject={openEditProjectModal}
+                  onDeleteProject={() => setModal("deleteProject")}
                   onCreateTask={() => {
                     setTaskForm((form) => ({
                       ...form,
@@ -1481,7 +1552,21 @@ export default function App() {
         </main>
       </div>
       {modal === "project" && (
-        <Modal copy={copy} title={copy.modals.newProject} onClose={() => setModal(null)}>
+        <Modal
+          copy={copy}
+          title={
+            projectFormMode === "edit"
+              ? language === "ru"
+                ? "Редактировать проект"
+                : "Edit Project"
+              : copy.modals.newProject
+          }
+          onClose={() => {
+            setProjectFormMode("create");
+            setProjectForm({ name: "", description: "" });
+            setModal(null);
+          }}
+        >
           <form className="form-stack" onSubmit={(event) => void submitProject(event)}>
             <label>
               <span>{copy.forms.projectName}</span>
@@ -1504,10 +1589,38 @@ export default function App() {
               />
             </label>
             <button className="primary-button" type="submit">
-              <Plus size={16} />
-              {copy.actions.createProject}
+              {projectFormMode === "edit" ? <Edit3 size={16} /> : <Plus size={16} />}
+              {projectFormMode === "edit"
+                ? language === "ru"
+                  ? "Сохранить проект"
+                  : "Save project"
+                : copy.actions.createProject}
             </button>
           </form>
+        </Modal>
+      )}
+      {modal === "deleteProject" && selectedProject && (
+        <Modal
+          copy={copy}
+          title={language === "ru" ? "Удалить проект" : "Delete Project"}
+          onClose={() => setModal(null)}
+        >
+          <div className="form-stack">
+            <p className="modal-warning-text">
+              {language === "ru"
+                ? `Проект "${selectedProject.name}" будет удален вместе с задачами, участниками, тегами и комментариями. Это действие нельзя отменить.`
+                : `Project "${selectedProject.name}" will be deleted with its tasks, members, tags, and comments. This action cannot be undone.`}
+            </p>
+            <div className="modal-action-row">
+              <button className="secondary-button" type="button" onClick={() => setModal(null)}>
+                {language === "ru" ? "Отмена" : "Cancel"}
+              </button>
+              <button className="danger-button" type="button" onClick={() => void deleteProject()}>
+                <Trash2 size={16} />
+                {language === "ru" ? "Удалить проект" : "Delete Project"}
+              </button>
+            </div>
+          </div>
         </Modal>
       )}
       {modal === "task" && (
@@ -1597,9 +1710,9 @@ export default function App() {
                 }
               />
             </label>
-            <label>
-              <span>Tags</span>
-              <div className="tag-picker">
+              <label>
+                <span>{language === "ru" ? "Теги" : "Tags"}</span>
+                <div className="tag-picker">
                 {tags.map((tag) => {
                   const selected = taskForm.tagIds.includes(String(tag.id));
                   return (
@@ -1827,74 +1940,6 @@ export default function App() {
             </section>
             <section className="detail-panel task-side-panel">
               <div className="task-side-stack">
-                {activeTask && false && (canEditSelectedProject || canExtendActiveTaskDeadline) && (
-                  <section className="task-side-section">
-                    <SectionHeader
-                      title={language === "ru" ? "Управление задачей" : "Task Controls"}
-                      subtitle={
-                        language === "ru"
-                          ? "Статус, исполнитель и дедлайн"
-                          : "Status, assignee, and deadline"
-                      }
-                    />
-                    {canEditSelectedProject && (
-                      <div className="task-control-grid">
-                        <label className="detail-control">
-                          <span>{copy.team.status}</span>
-                          <select
-                            value={activeTask!.status}
-                            onChange={(event) =>
-                              void changeActiveTaskStatus(event.target.value as TaskStatus)
-                            }
-                          >
-                            {STATUSES.map((status) => (
-                              <option key={status} value={status}>
-                                {statusLabels[status]}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                        <label className="detail-control">
-                          <span>{copy.forms.assignee}</span>
-                          <select
-                            value={activeTask!.assigneeId ?? ""}
-                            onChange={(event) => void changeActiveTaskAssignee(event.target.value)}
-                          >
-                            <option value="">{copy.common.unassigned}</option>
-                            {projectMembers.map((member) => (
-                              <option key={member.id} value={member.id}>
-                                {member.username}
-                              </option>
-                            ))}
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    {canExtendActiveTaskDeadline && (
-                      <div className="deadline-extend-panel">
-                        <label className="detail-control">
-                          <span>{language === "ru" ? "Продлить дедлайн" : "Extend deadline"}</span>
-                          <input
-                            type="datetime-local"
-                            value={deadlineDraft}
-                            onChange={(event) => setDeadlineDraft(event.target.value)}
-                          />
-                        </label>
-                        <button
-                          className="secondary-button"
-                          type="button"
-                          disabled={!deadlineDraft}
-                          onClick={() => void extendActiveTaskDeadline()}
-                        >
-                          <Clock3 size={15} />
-                          {language === "ru" ? "Обновить дедлайн" : "Update deadline"}
-                        </button>
-                      </div>
-                    )}
-                    {taskDetailError && <p className="form-error task-detail-error">{taskDetailError}</p>}
-                  </section>
-                )}
-
                 <section className="task-side-section">
                   <SectionHeader
                     title={language === "ru" ? "Сведения" : "Task Details"}
@@ -1925,16 +1970,56 @@ export default function App() {
                       <article key={comment.id} className="comment-row">
                         <div>
                           <strong>{comment.authorUsername ?? copy.common.unknown}</strong>
-                          <p>{comment.text}</p>
+                          {editingCommentId === comment.id ? (
+                            <div className="comment-editor">
+                              <textarea
+                                rows={3}
+                                value={editingCommentText}
+                                onChange={(event) => setEditingCommentText(event.target.value)}
+                              />
+                              <div className="comment-editor-actions">
+                                <button
+                                  className="primary-button"
+                                  type="button"
+                                  disabled={!editingCommentText.trim()}
+                                  onClick={() => void saveCommentEdit()}
+                                >
+                                  {language === "ru" ? "Сохранить" : "Save"}
+                                </button>
+                                <button
+                                  className="secondary-button"
+                                  type="button"
+                                  onClick={cancelCommentEdit}
+                                >
+                                  {copy.actions.cancel}
+                                </button>
+                              </div>
+                            </div>
+                          ) : (
+                            <p>{comment.text}</p>
+                          )}
                         </div>
                         {(comment.authorId === currentUser?.id || canEditSelectedMembers) && (
-                          <button
-                            className="icon-button"
-                            onClick={() => void removeComment(comment.id)}
-                            aria-label={copy.actions.deleteTask}
-                          >
-                            <Trash2 size={15} />
-                          </button>
+                          <div className="comment-actions">
+                            {editingCommentId !== comment.id && (
+                              <button
+                                className="icon-button"
+                                type="button"
+                                onClick={() => startCommentEdit(comment.id, comment.text)}
+                                aria-label={language === "ru" ? "Редактировать комментарий" : "Edit comment"}
+                              >
+                                <Edit3 size={15} />
+                              </button>
+                            )}
+                            <button
+                              className="icon-button"
+                              type="button"
+                              onClick={() => void removeComment(comment.id)}
+                              aria-label={copy.actions.deleteTask}
+                            >
+                              <Trash2 size={15} />
+                            </button>
+                          </div>
                         )}
                       </article>
                     ))}
@@ -2199,10 +2284,6 @@ function AuthScreen({
                 onChange={(event) => setForm((next) => ({ ...next, password: event.target.value }))}
               />
             </label>
-            <label className="checkbox-line">
-              <input type="checkbox" />
-              <span>{copy.auth.remember}</span>
-            </label>
             {error && <p className="form-error">{error}</p>}
             <button className="primary-button" type="submit" disabled={loading}>
               {loading ? <Loader2 className="spin" size={16} /> : <Shield size={16} />}
@@ -2268,13 +2349,11 @@ function Sidebar({
   copy,
   currentView,
   onChangeView,
-  onCreateTask,
   onLogout
 }: {
   copy: Copy;
   currentView: View;
   onChangeView: (view: View) => void;
-  onCreateTask: () => void;
   onLogout: () => void;
 }) {
   const items: { view: View; label: string; icon: typeof LayoutDashboard }[] = [
@@ -2311,10 +2390,6 @@ function Sidebar({
         })}
       </nav>
       <div className="sidebar-footer">
-        <button className="primary-button compact" onClick={onCreateTask}>
-          <Plus size={16} />
-          <span>{copy.actions.createTask}</span>
-        </button>
         <button className="nav-item ghost" onClick={onLogout}>
           <LogOut size={18} />
           <span>{copy.nav.logout}</span>
@@ -2483,8 +2558,11 @@ function BoardView({
   selectedProjectId,
   loading,
   canEdit,
+  canDeleteProject,
   statusLabels,
   onSelectProject,
+  onEditProject,
+  onDeleteProject,
   onCreateTask,
   onMoveTask,
   onOpenTask
@@ -2497,14 +2575,36 @@ function BoardView({
   selectedProjectId: number | null;
   loading: boolean;
   canEdit: boolean;
+  canDeleteProject: boolean;
   statusLabels: Record<TaskStatus, string>;
   onSelectProject: (projectId: number) => void;
+  onEditProject: () => void;
+  onDeleteProject: () => void;
   onCreateTask: () => void;
   onMoveTask: (task: ProjectTaskSummaryResponse, status: TaskStatus) => void;
   onOpenTask: (taskId: number) => void;
 }) {
   const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
   const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
+  const [filters, setFilters] = useState({
+    query: "",
+    status: "ALL" as TaskStatus | "ALL",
+    priority: "ALL" as Priority | "ALL",
+    assigneeId: "ALL",
+    tagId: "ALL",
+    overdueOnly: false
+  });
+
+  useEffect(() => {
+    setFilters({
+      query: "",
+      status: "ALL",
+      priority: "ALL",
+      assigneeId: "ALL",
+      tagId: "ALL",
+      overdueOnly: false
+    });
+  }, [selectedProjectId]);
 
   function dropTask(status: TaskStatus) {
     if (!selectedProject || draggingTaskId === null) {
@@ -2518,6 +2618,73 @@ function BoardView({
     setDragOverStatus(null);
   }
 
+  const availableTagOptions = useMemo(() => {
+    if (!selectedProject) {
+      return [];
+    }
+    const seen = new Map<number, string>();
+    selectedProject.tasks.forEach((task) => {
+      task.tags.forEach((tag) => {
+        if (!seen.has(tag.id)) {
+          seen.set(tag.id, tag.name);
+        }
+      });
+    });
+    return [...seen.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((left, right) => left.name.localeCompare(right.name));
+  }, [selectedProject]);
+
+  const filteredTasks = useMemo(() => {
+    if (!selectedProject) {
+      return [];
+    }
+    const query = filters.query.trim().toLowerCase();
+    return selectedProject.tasks.filter((task) => {
+      if (filters.status !== "ALL" && task.status !== filters.status) {
+        return false;
+      }
+      if (filters.priority !== "ALL" && task.priority !== filters.priority) {
+        return false;
+      }
+      if (filters.assigneeId !== "ALL") {
+        if (filters.assigneeId === "unassigned") {
+          if (task.assigneeId !== null) {
+            return false;
+          }
+        } else if (String(task.assigneeId ?? "") !== filters.assigneeId) {
+          return false;
+        }
+      }
+      if (filters.tagId !== "ALL" && !task.tags.some((tag) => String(tag.id) === filters.tagId)) {
+        return false;
+      }
+      if (filters.overdueOnly && !isOverdueTask(task.dueDate, task.status)) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      const haystack = [
+        task.title,
+        task.assigneeUsername ?? "",
+        task.creatorUsername ?? "",
+        ...task.tags.map((tag) => tag.name)
+      ]
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [filters, selectedProject]);
+
+  const hasActiveFilters =
+    filters.query !== "" ||
+    filters.status !== "ALL" ||
+    filters.priority !== "ALL" ||
+    filters.assigneeId !== "ALL" ||
+    filters.tagId !== "ALL" ||
+    filters.overdueOnly;
+
   return (
     <div className="view-stack">
       <Toolbar
@@ -2528,97 +2695,241 @@ function BoardView({
         copy={copy}
         onSelectProject={onSelectProject}
         action={
-          <button className="primary-button" onClick={onCreateTask} disabled={!canEdit}>
-            <Plus size={16} />
-            {copy.actions.newTask}
-          </button>
+          <div className="toolbar-button-row">
+            {selectedProject && canEdit && (
+              <button className="secondary-button" onClick={onEditProject}>
+                <Edit3 size={16} />
+                {language === "ru" ? "Изменить проект" : "Edit Project"}
+              </button>
+            )}
+            {selectedProject && canDeleteProject && (
+              <button className="danger-button" onClick={onDeleteProject}>
+                <Trash2 size={16} />
+                {language === "ru" ? "Удалить проект" : "Delete Project"}
+              </button>
+            )}
+            <button className="primary-button" onClick={onCreateTask} disabled={!canEdit}>
+              <Plus size={16} />
+              {copy.actions.newTask}
+            </button>
+          </div>
         }
       />
       {loading ? (
         <LoadingState copy={copy} />
       ) : selectedProject ? (
-        <section className="kanban">
-          {STATUSES.map((status) => {
-            const tasks = selectedProject.tasks.filter((task) => task.status === status);
-            return (
-              <div
-                className={`kanban-column ${dragOverStatus === status ? "drag-target" : ""}`}
-                key={status}
-                onDragOver={(event) => {
-                  if (canEdit) {
-                    event.preventDefault();
-                    setDragOverStatus(status);
+        <>
+          <section className="board-filter-panel">
+            <div className="board-filter-grid">
+              <label className="detail-control board-filter-span-two">
+                <span>{language === "ru" ? "Поиск" : "Search"}</span>
+                <input
+                  value={filters.query}
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, query: event.target.value }))
                   }
-                }}
-                onDragLeave={() => setDragOverStatus(null)}
-                onDrop={(event) => {
-                  event.preventDefault();
-                  dropTask(status);
-                }}
-              >
-                <div className="column-title">
-                  <span className={`status-dot status-${status.toLowerCase()}`} />
-                  <strong>{statusLabels[status]}</strong>
-                  <em>{tasks.length}</em>
-                </div>
-                <div className="task-card-stack">
-                  {tasks.map((task) => (
-                    <article
-                      className="task-card"
-                      draggable={canEdit}
-                      key={task.id}
-                      onClick={() => onOpenTask(task.id)}
-                      onDragEnd={() => {
-                        setDraggingTaskId(null);
-                        setDragOverStatus(null);
-                      }}
-                      onDragStart={(event) => {
-                        event.dataTransfer.effectAllowed = "move";
-                        setDraggingTaskId(task.id);
-                      }}
-                    >
-                      <div className="task-card-top">
-                        <span className={`priority-chip priority-${task.priority.toLowerCase()}`}>
-                          {priorityLabels[task.priority]}
-                        </span>
-                        <span>{formatShortDate(task.dueDate, language)}</span>
-                      </div>
-                      <h3>{task.title}</h3>
-                      {!!task.tags.length && (
-                        <div className="tag-row task-card-tags">
-                          {task.tags.map((tag) => (
-                            <span className="tag-chip" key={tag.id}>
-                              <Tag size={12} />
-                              {tag.name}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-                      <div className="task-card-bottom">
-                        <span>{task.assigneeUsername ?? copy.common.unassigned}</span>
-                        {canEdit && (
-                          <select
-                            value={task.status}
-                            onClick={(event) => event.stopPropagation()}
-                            onChange={(event) =>
-                              onMoveTask(task, event.target.value as TaskStatus)
-                            }
-                          >
-                            {STATUSES.map((nextStatus) => (
-                              <option key={nextStatus} value={nextStatus}>
-                                {statusLabels[nextStatus]}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    </article>
+                  placeholder={
+                    language === "ru"
+                      ? "Название, исполнитель или тег"
+                      : "Title, assignee, or tag"
+                  }
+                />
+              </label>
+              <label className="detail-control">
+                <span>{language === "ru" ? "Статус" : "Status"}</span>
+                <select
+                  value={filters.status}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      status: event.target.value as TaskStatus | "ALL"
+                    }))
+                  }
+                >
+                  <option value="ALL">{language === "ru" ? "Все статусы" : "All statuses"}</option>
+                  {STATUSES.map((status) => (
+                    <option key={status} value={status}>
+                      {statusLabels[status]}
+                    </option>
                   ))}
-                </div>
-              </div>
-            );
-          })}
-        </section>
+                </select>
+              </label>
+              <label className="detail-control">
+                <span>{language === "ru" ? "Приоритет" : "Priority"}</span>
+                <select
+                  value={filters.priority}
+                  onChange={(event) =>
+                    setFilters((current) => ({
+                      ...current,
+                      priority: event.target.value as Priority | "ALL"
+                    }))
+                  }
+                >
+                  <option value="ALL">{language === "ru" ? "Все приоритеты" : "All priorities"}</option>
+                  {PRIORITIES.map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priorityLabels[priority]}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="detail-control">
+                <span>{copy.forms.assignee}</span>
+                <select
+                  value={filters.assigneeId}
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, assigneeId: event.target.value }))
+                  }
+                >
+                  <option value="ALL">{language === "ru" ? "Все исполнители" : "All assignees"}</option>
+                  <option value="unassigned">{copy.common.unassigned}</option>
+                  {selectedProject.users.map((member) => (
+                    <option key={member.id} value={member.id}>
+                      {member.username}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="detail-control">
+                <span>{language === "ru" ? "Тег" : "Tag"}</span>
+                <select
+                  value={filters.tagId}
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, tagId: event.target.value }))
+                  }
+                >
+                  <option value="ALL">{language === "ru" ? "Все теги" : "All tags"}</option>
+                  {availableTagOptions.map((tag) => (
+                    <option key={tag.id} value={tag.id}>
+                      {tag.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="checkbox-line board-filter-toggle">
+                <input
+                  type="checkbox"
+                  checked={filters.overdueOnly}
+                  onChange={(event) =>
+                    setFilters((current) => ({ ...current, overdueOnly: event.target.checked }))
+                  }
+                />
+                <span>{language === "ru" ? "Только просроченные" : "Overdue only"}</span>
+              </label>
+              {hasActiveFilters && (
+                <button
+                  className="secondary-button"
+                  type="button"
+                  onClick={() =>
+                    setFilters({
+                      query: "",
+                      status: "ALL",
+                      priority: "ALL",
+                      assigneeId: "ALL",
+                      tagId: "ALL",
+                      overdueOnly: false
+                    })
+                  }
+                >
+                  {language === "ru" ? "Сбросить фильтры" : "Clear filters"}
+                </button>
+              )}
+            </div>
+          </section>
+
+          {filteredTasks.length ? (
+            <section className="kanban">
+              {STATUSES.map((status) => {
+                const tasks = filteredTasks.filter((task) => task.status === status);
+                return (
+                  <div
+                    className={`kanban-column ${dragOverStatus === status ? "drag-target" : ""}`}
+                    key={status}
+                    onDragOver={(event) => {
+                      if (canEdit) {
+                        event.preventDefault();
+                        setDragOverStatus(status);
+                      }
+                    }}
+                    onDragLeave={() => setDragOverStatus(null)}
+                    onDrop={(event) => {
+                      event.preventDefault();
+                      dropTask(status);
+                    }}
+                  >
+                    <div className="column-title">
+                      <span className={`status-dot status-${status.toLowerCase()}`} />
+                      <strong>{statusLabels[status]}</strong>
+                      <em>{tasks.length}</em>
+                    </div>
+                    <div className="task-card-stack">
+                      {tasks.map((task) => (
+                        <article
+                          className={`task-card ${isOverdueTask(task.dueDate, task.status) ? "task-card-overdue" : ""}`}
+                          draggable={canEdit}
+                          key={task.id}
+                          onClick={() => onOpenTask(task.id)}
+                          onDragEnd={() => {
+                            setDraggingTaskId(null);
+                            setDragOverStatus(null);
+                          }}
+                          onDragStart={(event) => {
+                            event.dataTransfer.effectAllowed = "move";
+                            setDraggingTaskId(task.id);
+                          }}
+                        >
+                          <div className="task-card-top">
+                            <span className={`priority-chip priority-${task.priority.toLowerCase()}`}>
+                              {priorityLabels[task.priority]}
+                            </span>
+                            <span>{formatShortDate(task.dueDate, language)}</span>
+                          </div>
+                          <h3>{task.title}</h3>
+                          {!!task.tags.length && (
+                            <div className="tag-row task-card-tags">
+                              {task.tags.map((tag) => (
+                                <span className="tag-chip" key={tag.id}>
+                                  <Tag size={12} />
+                                  {tag.name}
+                                </span>
+                              ))}
+                            </div>
+                          )}
+                          <div className="task-card-bottom">
+                            <span>{task.assigneeUsername ?? copy.common.unassigned}</span>
+                            {canEdit && (
+                              <select
+                                value={task.status}
+                                onClick={(event) => event.stopPropagation()}
+                                onChange={(event) =>
+                                  onMoveTask(task, event.target.value as TaskStatus)
+                                }
+                              >
+                                {STATUSES.map((nextStatus) => (
+                                  <option key={nextStatus} value={nextStatus}>
+                                    {statusLabels[nextStatus]}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
+                          </div>
+                        </article>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </section>
+          ) : (
+            <EmptyState
+              title={
+                language === "ru"
+                  ? "Фильтры не нашли ни одной задачи"
+                  : "No tasks match the current filters"
+              }
+            />
+          )}
+        </>
       ) : (
         <EmptyState title={copy.board.empty} />
       )}

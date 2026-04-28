@@ -272,6 +272,13 @@ textarea {
   gap: 0.7rem;
 }
 
+.toolbar-button-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.7rem;
+}
+
 .select-shell {
   position: relative;
   min-width: 15rem;
@@ -326,11 +333,6 @@ textarea {
 .secondary-button:not(:disabled):active,
 .danger-button:not(:disabled):active {
   transform: scale(0.98);
-}
-
-.primary-button.compact {
-  width: 100%;
-  margin-bottom: 0.75rem;
 }
 
 .top-action {
@@ -528,6 +530,31 @@ textarea {
   text-align: left;
 }
 
+.board-filter-panel {
+  padding: 1rem 1.1rem;
+  border-radius: 8px;
+  background: var(--surface-low);
+}
+
+.board-filter-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 0.8rem;
+  align-items: end;
+}
+
+.board-filter-span-two {
+  grid-column: span 2;
+}
+
+.board-filter-toggle {
+  min-height: 2.45rem;
+  align-self: end;
+  padding: 0.72rem 0.8rem;
+  border-radius: 6px;
+  background: var(--surface-high);
+}
+
 .task-row > div {
   display: grid;
   gap: 0.2rem;
@@ -608,6 +635,10 @@ textarea {
   border-radius: 6px;
   background: var(--surface-high);
   transition: background 0.16s ease, box-shadow 0.16s ease;
+}
+
+.task-card-overdue {
+  box-shadow: inset 2px 0 0 var(--error);
 }
 
 .task-card[draggable="true"] {
@@ -873,6 +904,19 @@ td {
   margin: 0;
 }
 
+.modal-warning-text {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+.modal-action-row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
 .form-stack {
   display: grid;
   gap: 0.9rem;
@@ -1027,6 +1071,12 @@ td {
   background: var(--surface-high);
 }
 
+.comment-actions {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
 .comment-row strong {
   font-size: 0.8rem;
 }
@@ -1043,6 +1093,23 @@ td {
 
 .comment-form textarea {
   min-height: 6rem;
+}
+
+.comment-editor {
+  display: grid;
+  gap: 0.6rem;
+  margin-top: 0.5rem;
+}
+
+.comment-editor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.comment-editor-actions .primary-button,
+.comment-editor-actions .secondary-button {
+  min-width: 7.5rem;
 }
 
 .empty-state,
@@ -1458,8 +1525,7 @@ td {
   }
 
   .workspace-logo div:last-child,
-  .nav-item span,
-  .sidebar-footer .primary-button span {
+  .nav-item span {
     display: none;
   }
 
@@ -1486,8 +1552,13 @@ td {
   .profile-grid,
   .profile-runtime,
   .analytics-strip,
-  .insight-grid {
+  .insight-grid,
+  .board-filter-grid {
     grid-template-columns: 1fr;
+  }
+
+  .board-filter-span-two {
+    grid-column: auto;
   }
 
   .profile-identity,
@@ -1547,11 +1618,13 @@ td {
   }
 
   .toolbar-actions,
+  .toolbar-button-row,
   .form-grid,
   .inline-action,
   .task-tag-fields,
   .task-control-grid,
-  .auth-panel-top {
+  .auth-panel-top,
+  .comment-editor-actions {
     width: 100%;
     grid-template-columns: 1fr;
     flex-direction: column;

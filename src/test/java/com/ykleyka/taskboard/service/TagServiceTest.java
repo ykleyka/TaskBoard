@@ -33,6 +33,7 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
+import org.springframework.web.server.ResponseStatusException;
 
 @ExtendWith(MockitoExtension.class)
 class TagServiceTest {
@@ -180,6 +181,25 @@ class TagServiceTest {
     }
 
     @Test
+    void assignTagToTask_withCurrentUserAndMissingMembership_hidesTask() {
+        Long taskId = 49L;
+        Long projectId = 50L;
+        Long currentUserId = 51L;
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task(taskId, projectId)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(false);
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.assignTagToTask(taskId, 60L, currentUserId));
+
+        assertEquals(404, exception.getStatusCode().value());
+        verify(tagRepository, never()).findById(any());
+    }
+
+    @Test
     void removeTagFromTask_whenRemoved_savesAndInvalidatesCaches() {
         Long taskId = 50L;
         Long tagId = 60L;
@@ -220,6 +240,23 @@ class TagServiceTest {
         verify(taskRepository, never()).save(any(Task.class));
         verify(tagCache, never()).invalidate();
         verify(taskCache, never()).invalidateTask(taskId);
+    }
+
+    @Test
+    void removeTagFromTask_withCurrentUserAndTaskWithoutProject_throwsConflict() {
+        Long taskId = 90L;
+        Task task = task(taskId);
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task));
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.removeTagFromTask(taskId, 91L, 92L));
+
+        assertEquals(409, exception.getStatusCode().value());
+        verify(projectMemberRepository, never()).existsByProjectIdAndUserId(any(), any());
+        verify(tagRepository, never()).findById(any());
     }
 
     private Task task(Long id) {

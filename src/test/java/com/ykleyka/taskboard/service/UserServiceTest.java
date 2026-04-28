@@ -76,6 +76,22 @@ class UserServiceTest {
     }
 
     @Test
+    void getUsers_withCurrentUser_returnsVisibleUsers() {
+        Long currentUserId = 10L;
+        User current = user(currentUserId, "current", "current@example.com");
+        User teammate = user(11L, "teammate", "teammate@example.com");
+
+        when(userRepository.findAllVisibleToUser(currentUserId, PageRequest.of(0, 20)))
+                .thenReturn(new PageImpl<>(List.of(current, teammate)));
+
+        List<User> actual = service.getUsers(currentUserId, PageRequest.of(0, 20));
+
+        assertEquals(2, actual.size());
+        assertEquals("current", actual.get(0).getUsername());
+        assertEquals("teammate", actual.get(1).getUsername());
+    }
+
+    @Test
     void getUserById_whenFound_returnsUser() {
         User user = user(5L, "john", "john@example.com");
         when(userRepository.findById(5L)).thenReturn(Optional.of(user));
@@ -90,6 +106,23 @@ class UserServiceTest {
         when(userRepository.findById(6L)).thenReturn(Optional.empty());
 
         assertThrows(UserNotFoundException.class, () -> service.getUserById(6L));
+    }
+
+    @Test
+    void getUserById_withCurrentUser_whenVisible_returnsUser() {
+        User visible = user(11L, "visible", "visible@example.com");
+        when(userRepository.findVisibleToUserById(11L, 10L)).thenReturn(Optional.of(visible));
+
+        User actual = service.getUserById(11L, 10L);
+
+        assertEquals(visible, actual);
+    }
+
+    @Test
+    void getUserById_withCurrentUser_whenNotVisible_throwsNotFound() {
+        when(userRepository.findVisibleToUserById(12L, 10L)).thenReturn(Optional.empty());
+
+        assertThrows(UserNotFoundException.class, () -> service.getUserById(12L, 10L));
     }
 
     @Test

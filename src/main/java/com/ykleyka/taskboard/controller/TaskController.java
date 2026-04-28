@@ -10,9 +10,7 @@ import com.ykleyka.taskboard.validation.OnCreate;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Positive;
-import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.groups.Default;
 import java.time.Instant;
 import java.util.List;
@@ -65,13 +63,12 @@ public class TaskController {
     public List<TaskResponse> searchTasks(
             @AuthenticationPrincipal AuthenticatedUser currentUser,
             @RequestParam @Positive Long projectId,
-            @RequestParam @NotBlank String tagName,
+            @RequestParam(required = false) String tagName,
             @RequestParam(required = false) Status status,
             @RequestParam(required = false) String assignee,
-            @RequestParam(defaultValue = "0") @PositiveOrZero int page,
-            @RequestParam(defaultValue = "20") @Positive int size) {
+            @ParameterObject @PageableDefault(page = 0, size = 20) Pageable pageable) {
         return service.searchTasksByProjectIdAndTag(
-                projectId, tagName, status, assignee, page, size, currentUser.id());
+                projectId, tagName, status, assignee, pageable, currentUser.id());
     }
 
     @Operation(summary = "Search overdue tasks",
@@ -80,14 +77,13 @@ public class TaskController {
     public List<TaskResponse> searchOverdueTasksNative(
             @AuthenticationPrincipal AuthenticatedUser currentUser,
             @RequestParam @Positive Long projectId,
-            @RequestParam @NotBlank String tagName,
+            @RequestParam(required = false) String tagName,
             @RequestParam(required = false) Status status,
             @RequestParam(required = false) String assignee,
             @RequestParam(required = false) Instant dueBefore,
-            @RequestParam(defaultValue = "0") @PositiveOrZero int page,
-            @RequestParam(defaultValue = "20") @Positive int size) {
+            @ParameterObject @PageableDefault(page = 0, size = 20) Pageable pageable) {
         return service.searchOverdueTasksByProjectIdAndTagNative(
-                projectId, tagName, status, assignee, dueBefore, page, size, currentUser.id());
+                projectId, tagName, status, assignee, dueBefore, pageable, currentUser.id());
     }
 
     @Operation(summary = "Create task", description = "Creates a new task.")

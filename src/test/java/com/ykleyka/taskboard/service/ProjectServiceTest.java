@@ -105,6 +105,24 @@ class ProjectServiceTest {
     }
 
     @Test
+    void getProjects_withCurrentUser_loadsVisibleProjectsWithoutCache() {
+        Pageable pageable = PageRequest.of(0, 20);
+        Long currentUserId = 42L;
+        Project entity = project(2L, "Visible");
+        ProjectResponse mapped = projectResponse(2L, "Visible");
+
+        when(projectRepository.findAllVisibleToUser(currentUserId, pageable))
+                .thenReturn(new PageImpl<>(List.of(entity)));
+        when(mapper.toResponse(entity)).thenReturn(mapped);
+
+        List<ProjectResponse> actual = service.getProjects(currentUserId, pageable);
+
+        assertEquals(List.of(mapped), actual);
+        verify(projectCache, never()).getProjects(any());
+        verify(projectRepository).findAllVisibleToUser(currentUserId, pageable);
+    }
+
+    @Test
     void getProjectById_whenCacheHit_returnsCachedDetails() {
         Long id = 10L;
         ProjectDetailsResponse cached = projectDetails(id, "Cached details");
@@ -130,6 +148,19 @@ class ProjectServiceTest {
 
         assertEquals(mapped, actual);
         verify(projectCache).putProjectDetails(id, mapped);
+    }
+
+    @Test
+    void getProjectById_withCurrentUserAndMissingMembership_throwsNotFound() {
+        Long projectId = 111L;
+        Long currentUserId = 222L;
+        when(projectMemberRepository.findById(any())).thenReturn(Optional.empty());
+
+        ResponseStatusException exception =
+                assertThrows(ResponseStatusException.class, () -> service.getProjectById(projectId, currentUserId));
+
+        assertEquals(404, exception.getStatusCode().value());
+        verify(projectRepository, never()).findDetailedById(anyLong());
     }
 
     @Test
@@ -238,6 +269,27 @@ class ProjectServiceTest {
     }
 
     @Test
+    void updateProjectMember_withCurrentUserAndSingleOwnerCannotDemoteOwner() {
+        Long projectId = 172L;
+        Long ownerId = 442L;
+        User owner = user(ownerId, "owner");
+        ProjectMember ownerMembership = projectMember(projectId, owner, ProjectRole.OWNER);
+        ProjectMemberRoleRequest request = new ProjectMemberRoleRequest(ProjectRole.MANAGER);
+
+        when(projectMemberRepository.findById(any())).thenReturn(Optional.of(ownerMembership));
+        when(projectMemberRepository.countByProjectIdAndRole(projectId, ProjectRole.OWNER))
+                .thenReturn(1L);
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.updateProjectMember(projectId, ownerId, request, ownerId));
+
+        assertEquals(409, exception.getStatusCode().value());
+        verify(projectMemberRepository, never()).save(any(ProjectMember.class));
+    }
+
+    @Test
     void deleteProjectMember_whenValid_deletesMemberAndInvalidatesCaches() {
         Long projectId = 18L;
         Long userId = 55L;
@@ -269,6 +321,28 @@ class ProjectServiceTest {
                         () -> service.deleteProjectMember(projectId, userId));
 
         assertEquals(404, exception.getStatusCode().value());
+    }
+
+    @Test
+    void deleteProjectMember_withManagerCannotRemoveManager() {
+        Long projectId = 182L;
+        Long actorId = 552L;
+        Long targetId = 553L;
+        ProjectMember actorMembership =
+                projectMember(projectId, user(actorId, "manager"), ProjectRole.MANAGER);
+        ProjectMember targetMembership =
+                projectMember(projectId, user(targetId, "target-manager"), ProjectRole.MANAGER);
+
+        when(projectMemberRepository.findById(any()))
+                .thenReturn(Optional.of(actorMembership), Optional.of(targetMembership));
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.deleteProjectMember(projectId, targetId, actorId));
+
+        assertEquals(403, exception.getStatusCode().value());
+        verify(projectMemberRepository, never()).delete(any(ProjectMember.class));
     }
 
     @Test
@@ -347,6 +421,25 @@ class ProjectServiceTest {
     }
 
     @Test
+    void updateProject_withCurrentUserAndMemberRole_throwsForbidden() {
+        Long projectId = 6L;
+        Long currentUserId = 7L;
+        ProjectRequest request = new ProjectRequest("New", "Desc", currentUserId);
+        ProjectMember membership =
+                projectMember(projectId, user(currentUserId, "member"), ProjectRole.MEMBER);
+
+        when(projectMemberRepository.findById(any())).thenReturn(Optional.of(membership));
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.updateProject(projectId, request, currentUserId));
+
+        assertEquals(403, exception.getStatusCode().value());
+        verify(projectRepository, never()).findById(projectId);
+    }
+
+    @Test
     void patchProject_whenNoChanges_onlyMapsResponse() {
         Long id = 9L;
         Project existing = project(id, "Same");
@@ -417,6 +510,25 @@ class ProjectServiceTest {
         when(projectMemberRepository.existsByProjectIdAndUserId(projectId, userId)).thenReturn(true);
 
         assertThrows(ProjectConflictException.class, () -> service.addMember(projectId, request));
+    }
+
+    @Test
+    void addMember_withManagerCannotAssignManagerRole() {
+        Long projectId = 302L;
+        Long currentUserId = 16L;
+        ProjectMember actorMembership =
+                projectMember(projectId, user(currentUserId, "manager"), ProjectRole.MANAGER);
+        ProjectMemberRequest request = new ProjectMemberRequest(17L, ProjectRole.MANAGER);
+
+        when(projectMemberRepository.findById(any())).thenReturn(Optional.of(actorMembership));
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.addMember(projectId, request, currentUserId));
+
+        assertEquals(403, exception.getStatusCode().value());
+        verify(userRepository, never()).findById(17L);
     }
 
     @Test

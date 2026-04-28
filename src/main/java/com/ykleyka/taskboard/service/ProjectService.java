@@ -131,11 +131,16 @@ public class ProjectService {
         requireProjectRole(projectId, currentUserId, OWNER_ONLY);
         ProjectMember member = findProjectMember(projectId, userId);
         ensureOwnerRoleCanChange(member, request.role());
-        return updateProjectMember(projectId, userId, request);
+        return updateProjectMemberInternal(projectId, userId, request);
     }
 
     @Transactional
     public ProjectUserSummaryResponse updateProjectMember(
+            Long projectId, Long userId, ProjectMemberRoleRequest request) {
+        return updateProjectMemberInternal(projectId, userId, request);
+    }
+
+    private ProjectUserSummaryResponse updateProjectMemberInternal(
             Long projectId, Long userId, ProjectMemberRoleRequest request) {
         findProject(projectId);
         ProjectMember member = findProjectMember(projectId, userId);
@@ -151,11 +156,15 @@ public class ProjectService {
         ProjectRole actorRole = requireProjectRole(projectId, currentUserId, PROJECT_EDIT_ROLES);
         ProjectMember member = findProjectMember(projectId, userId);
         ensureMemberCanBeRemoved(actorRole, member);
-        return deleteProjectMember(projectId, userId);
+        return deleteProjectMemberInternal(projectId, userId);
     }
 
     @Transactional
     public ProjectUserSummaryResponse deleteProjectMember(Long projectId, Long userId) {
+        return deleteProjectMemberInternal(projectId, userId);
+    }
+
+    private ProjectUserSummaryResponse deleteProjectMemberInternal(Long projectId, Long userId) {
         findProject(projectId);
         ProjectMember member = findProjectMember(projectId, userId);
         projectMemberRepository.delete(member);
@@ -232,13 +241,17 @@ public class ProjectService {
             Long projectId, ProjectMemberRequest request, Long currentUserId) {
         ProjectRole actorRole = requireProjectRole(projectId, currentUserId, PROJECT_EDIT_ROLES);
         ensureAssignableByActor(actorRole, request);
-        return addMember(projectId, request);
+        return addMemberInternal(projectId, request);
     }
 
     @Transactional
     public ProjectUserSummaryResponse addMember(Long projectId, ProjectMemberRequest request) {
+        return addMemberInternal(projectId, request);
+    }
+
+    private ProjectUserSummaryResponse addMemberInternal(Long projectId, ProjectMemberRequest request) {
         Project project = findProject(projectId);
-        ProjectUserSummaryResponse response = addMemberInternal(project, projectId, request);
+        ProjectUserSummaryResponse response = addMemberToProject(project, projectId, request);
         projectCache.invalidate();
         return response;
     }
@@ -248,15 +261,20 @@ public class ProjectService {
             Long projectId, List<ProjectMemberRequest> requests, Long currentUserId) {
         ProjectRole actorRole = requireProjectRole(projectId, currentUserId, PROJECT_EDIT_ROLES);
         requireBulkRequests(requests).forEach(request -> ensureAssignableByActor(actorRole, request));
-        return addMembersBulk(projectId, requests);
+        return addMembersBulkInternal(projectId, requests);
     }
 
     @Transactional
     public List<ProjectUserSummaryResponse> addMembersBulk(
             Long projectId, List<ProjectMemberRequest> requests) {
+        return addMembersBulkInternal(projectId, requests);
+    }
+
+    private List<ProjectUserSummaryResponse> addMembersBulkInternal(
+            Long projectId, List<ProjectMemberRequest> requests) {
         Project project = findProject(projectId);
         try {
-            return addMembersBulkInternal(project, projectId, requests);
+            return addMembersToProject(project, projectId, requests);
         } finally {
             projectCache.invalidate();
         }
@@ -265,11 +283,15 @@ public class ProjectService {
     @Transactional
     public ProjectResponse deleteProject(Long id, Long currentUserId) {
         requireProjectRole(id, currentUserId, OWNER_ONLY);
-        return deleteProject(id);
+        return deleteProjectInternal(id);
     }
 
     @Transactional
     public ProjectResponse deleteProject(Long id) {
+        return deleteProjectInternal(id);
+    }
+
+    private ProjectResponse deleteProjectInternal(Long id) {
         Project project = findProject(id);
         List<Task> tasks = taskRepository.findAllByProjectId(id);
         for (Task task : tasks) {
@@ -323,12 +345,12 @@ public class ProjectService {
         return userRepository.findById(id).orElseThrow(() -> new UserNotFoundException(id));
     }
 
-    private List<ProjectUserSummaryResponse> addMembersBulkInternal(
+    private List<ProjectUserSummaryResponse> addMembersToProject(
             Project project, Long projectId, List<ProjectMemberRequest> requests) {
         List<ProjectMemberRequest> validatedRequests = requireBulkRequests(requests);
         ensureNoDuplicateUserIds(validatedRequests);
         return validatedRequests.stream()
-                .map(request -> addMemberInternal(project, projectId, request))
+                .map(request -> addMemberToProject(project, projectId, request))
                 .toList();
     }
 
@@ -368,7 +390,7 @@ public class ProjectService {
         }
     }
 
-    private ProjectUserSummaryResponse addMemberInternal(
+    private ProjectUserSummaryResponse addMemberToProject(
             Project project, Long projectId, ProjectMemberRequest request) {
         Long userId = requireUserId(request);
         User user = findUser(userId);
