@@ -8,8 +8,8 @@ import com.ykleyka.taskboard.dto.ProjectRequest;
 import com.ykleyka.taskboard.dto.ProjectResponse;
 import com.ykleyka.taskboard.dto.ProjectUserSummaryResponse;
 import com.ykleyka.taskboard.security.AuthenticatedUser;
-import com.ykleyka.taskboard.service.AsyncTaskService;
 import com.ykleyka.taskboard.service.ProjectService;
+import com.ykleyka.taskboard.service.ProjectSummaryReportTaskService;
 import com.ykleyka.taskboard.validation.OnCreate;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -42,7 +42,7 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "Projects", description = "Operations for managing projects and project members")
 public class ProjectController {
     private final ProjectService service;
-    private final AsyncTaskService asyncTaskService;
+    private final ProjectSummaryReportTaskService projectSummaryReportTaskService;
 
     @Operation(summary = "List projects", description = "Returns a paginated list of projects.")
     @GetMapping
@@ -96,7 +96,7 @@ public class ProjectController {
             @AuthenticationPrincipal AuthenticatedUser currentUser) {
         service.requireProjectMember(id, currentUser.id());
         return ResponseEntity.accepted()
-                .body(asyncTaskService.submitProjectSummaryReport(id, currentUser.id()));
+                .body(projectSummaryReportTaskService.submitProjectSummaryReport(id, currentUser.id()));
     }
 
     @Operation(summary = "Add project member", description = "Adds a user to the specified project.")

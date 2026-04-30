@@ -161,13 +161,10 @@ export interface AsyncTaskStatusResponse<T = unknown> extends AsyncTaskSubmissio
 }
 
 export interface AsyncTaskMetricsResponse {
-  submittedCount: number;
   runningCount: number;
   completedCount: number;
   failedCount: number;
   projectSummaryUnsafeCounter: number;
-  projectSummaryAtomicCounter: number;
-  raceConditionDetected: boolean;
 }
 
 export interface ApiErrorPayload {

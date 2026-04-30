@@ -19,6 +19,7 @@ utils/EnvConfig.java
 stdout
 *.http
 checkstyle-debug.log
+jmeter.log
 spring-boot-dev*.log
 
 ### STS ###

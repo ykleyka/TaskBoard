@@ -212,11 +212,10 @@ const COPY = {
       distribution: "Tasks Distribution by Status",
       asyncRuntime: "Async Runtime",
       executionCounters: "Execution counters",
-      submitted: "Submitted",
+      projectSummaryRequests: "Report requests",
       running: "Running",
       completed: "Completed",
       failed: "Failed",
-      raceCondition: "Race Condition",
       members: "Members",
       unassigned: "Unassigned",
       nearestDueDate: "Nearest Due Date"
@@ -401,11 +400,10 @@ const COPY = {
       distribution: "Распределение задач по статусам",
       asyncRuntime: "Async выполнение",
       executionCounters: "Счетчики выполнения",
-      submitted: "Отправлено",
+      projectSummaryRequests: "Report requests",
       running: "В работе",
       completed: "Завершено",
       failed: "Ошибки",
-      raceCondition: "Race condition",
       members: "Участники",
       unassigned: "Без исполнителя",
       nearestDueDate: "Ближайший срок"
@@ -3049,14 +3047,13 @@ function ReportsView({
         <div className="surface-panel">
           <SectionHeader title={copy.reports.asyncRuntime} subtitle={copy.reports.executionCounters} />
           <div className="metric-list">
-            <Metric label={copy.reports.submitted} value={metrics?.submittedCount ?? 0} />
+            <Metric
+              label={copy.reports.projectSummaryRequests}
+              value={metrics?.projectSummaryUnsafeCounter ?? 0}
+            />
             <Metric label={copy.reports.running} value={metrics?.runningCount ?? 0} />
             <Metric label={copy.reports.completed} value={metrics?.completedCount ?? 0} />
             <Metric label={copy.reports.failed} value={metrics?.failedCount ?? 0} />
-            <Metric
-              label={copy.reports.raceCondition}
-              value={metrics?.raceConditionDetected ? copy.common.detected : copy.common.clear}
-            />
           </div>
         </div>
       </section>

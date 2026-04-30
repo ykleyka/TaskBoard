@@ -3,7 +3,7 @@ package com.ykleyka.taskboard.controller;
 import com.ykleyka.taskboard.dto.AsyncTaskMetricsResponse;
 import com.ykleyka.taskboard.dto.AsyncTaskStatusResponse;
 import com.ykleyka.taskboard.security.AuthenticatedUser;
-import com.ykleyka.taskboard.service.AsyncTaskService;
+import com.ykleyka.taskboard.service.ProjectSummaryReportTaskService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.constraints.NotBlank;
@@ -21,11 +21,11 @@ import org.springframework.web.bind.annotation.RestController;
 @RequiredArgsConstructor
 @Tag(name = "Async Tasks", description = "Operations for tracking asynchronous business tasks")
 public class AsyncTaskController {
-    private final AsyncTaskService service;
+    private final ProjectSummaryReportTaskService service;
 
     @Operation(
             summary = "Get asynchronous task metrics",
-            description = "Returns thread-safe metrics for submitted and processed asynchronous tasks.")
+            description = "Returns current asynchronous task metrics.")
     @GetMapping("/metrics")
     public AsyncTaskMetricsResponse getAsyncTaskMetrics() {
         return service.getAsyncTaskMetrics();
