@@ -153,7 +153,6 @@ Authorization: Bearer <accessToken>
 ```json
 {
   "asyncTaskId": "4d7e8147-0a50-44c7-a6b1-90dbf4187c07",
-  "operationType": "PROJECT_SUMMARY_REPORT",
   "status": "SUBMITTED",
   "createdAt": "2026-04-21T09:00:00Z"
 }

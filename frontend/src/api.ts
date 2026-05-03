@@ -1,6 +1,5 @@
 import type {
   ApiErrorPayload,
-  AsyncTaskMetricsResponse,
   AsyncTaskStatusResponse,
   AsyncTaskSubmissionResponse,
   AuthResponse,
@@ -285,6 +284,11 @@ export const api = {
   removeTag: (taskId: number, tagId: number) =>
     request<TagResponse>(`/api/tasks/${taskId}/tags/${tagId}`, { method: "DELETE" }),
 
+  comments: (taskId: number, page = 0, size = 5) =>
+    request<CommentResponse[]>(
+            `/api/tasks/${taskId}/comments?page=${page}&size=${size}&sort=createdAt,desc`
+    ),
+
   createComment: (taskId: number, text: string) =>
     request<CommentResponse>(`/api/tasks/${taskId}/comments`, {
       method: "POST",
@@ -309,6 +313,4 @@ export const api = {
     request<AsyncTaskStatusResponse<ProjectSummaryReportResponse>>(
       `/api/async-tasks/${asyncTaskId}`
     ),
-
-  asyncMetrics: () => request<AsyncTaskMetricsResponse>("/api/async-tasks/metrics")
 };

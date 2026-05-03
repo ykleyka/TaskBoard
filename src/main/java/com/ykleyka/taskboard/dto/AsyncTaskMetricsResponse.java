@@ -7,5 +7,6 @@ public record AsyncTaskMetricsResponse(
         long runningCount,
         long completedCount,
         long failedCount,
+        int submittedCounter,
         int projectSummaryUnsafeCounter) {
 }
