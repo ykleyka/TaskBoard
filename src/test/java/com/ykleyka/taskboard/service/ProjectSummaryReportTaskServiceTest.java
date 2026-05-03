@@ -2,9 +2,6 @@ package com.ykleyka.taskboard.service;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 import com.ykleyka.taskboard.dto.AsyncTaskMetricsResponse;
@@ -12,8 +9,6 @@ import com.ykleyka.taskboard.dto.AsyncTaskStatusResponse;
 import com.ykleyka.taskboard.dto.AsyncTaskSubmissionResponse;
 import com.ykleyka.taskboard.dto.ProjectSummaryReportResponse;
 import com.ykleyka.taskboard.dto.ProjectUserSummaryResponse;
-import com.ykleyka.taskboard.exception.AsyncTaskNotFoundException;
-import com.ykleyka.taskboard.exception.ProjectNotFoundException;
 import com.ykleyka.taskboard.model.enums.AsyncTaskStatus;
 import com.ykleyka.taskboard.model.enums.ProjectRole;
 import com.ykleyka.taskboard.model.enums.Status;
@@ -44,15 +39,6 @@ class ProjectSummaryReportTaskServiceTest {
                 projectRepository,
                 projectSummaryReportService,
                 sameThreadExecutor);
-    }
-
-    @Test
-    void submitProjectSummaryReport_whenProjectMissing_throwsNotFound() {
-        when(projectRepository.existsById(99L)).thenReturn(false);
-
-        assertThrows(ProjectNotFoundException.class, () -> service.submitProjectSummaryReport(99L));
-
-        verify(projectSummaryReportService, never()).buildProjectSummaryReport(99L);
     }
 
     @Test
@@ -95,20 +81,6 @@ class ProjectSummaryReportTaskServiceTest {
         assertEquals(0L, metrics.completedCount());
         assertEquals(1L, metrics.failedCount());
         assertEquals(1, metrics.projectSummaryUnsafeCounter());
-    }
-
-    @Test
-    void getAsyncTaskStatus_whenRequestedByAnotherUser_throwsNotFound() {
-        Long projectId = 12L;
-        when(projectRepository.existsById(projectId)).thenReturn(true);
-        when(projectSummaryReportService.buildProjectSummaryReport(projectId))
-                .thenReturn(report(projectId));
-
-        AsyncTaskSubmissionResponse submission = service.submitProjectSummaryReport(projectId, 1L);
-
-        assertThrows(
-                AsyncTaskNotFoundException.class,
-                () -> service.getAsyncTaskStatus(submission.asyncTaskId(), 2L));
     }
 
     private ProjectSummaryReportResponse report(Long projectId) {

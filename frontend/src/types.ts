@@ -148,7 +148,6 @@ export interface ProjectSummaryReportResponse {
 
 export interface AsyncTaskSubmissionResponse {
   asyncTaskId: string;
-  operationType: "PROJECT_SUMMARY_REPORT";
   status: AsyncTaskStatus;
   createdAt: string;
 }
@@ -158,13 +157,6 @@ export interface AsyncTaskStatusResponse<T = unknown> extends AsyncTaskSubmissio
   completedAt: string | null;
   errorMessage: string | null;
   result: T | null;
-}
-
-export interface AsyncTaskMetricsResponse {
-  runningCount: number;
-  completedCount: number;
-  failedCount: number;
-  projectSummaryUnsafeCounter: number;
 }
 
 export interface ApiErrorPayload {

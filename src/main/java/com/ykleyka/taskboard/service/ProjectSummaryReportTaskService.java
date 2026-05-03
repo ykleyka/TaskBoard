@@ -1,12 +1,14 @@
 package com.ykleyka.taskboard.service;
 
+import java.util.concurrent.RejectedExecutionException;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 import com.ykleyka.taskboard.dto.AsyncTaskMetricsResponse;
 import com.ykleyka.taskboard.dto.AsyncTaskStatusResponse;
 import com.ykleyka.taskboard.dto.AsyncTaskSubmissionResponse;
 import com.ykleyka.taskboard.dto.ProjectSummaryReportResponse;
 import com.ykleyka.taskboard.exception.AsyncTaskNotFoundException;
 import com.ykleyka.taskboard.exception.ProjectNotFoundException;
-import com.ykleyka.taskboard.model.enums.AsyncOperationType;
 import com.ykleyka.taskboard.model.enums.AsyncTaskStatus;
 import com.ykleyka.taskboard.repository.ProjectRepository;
 import java.time.Instant;
@@ -16,6 +18,7 @@ import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.UnaryOperator;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
@@ -25,16 +28,17 @@ public class ProjectSummaryReportTaskService {
     private final ConcurrentMap<String, ProjectSummaryReportTask> tasks = new ConcurrentHashMap<>();
     private final ProjectRepository projectRepository;
     private final ProjectSummaryReportService projectSummaryReportService;
-    private final Executor taskBoardAsyncExecutor;
-    private volatile int projectSummaryUnsafeCounter;
+    private final Executor projectSummaryReportTaskExecutor;
+    private final AtomicInteger submittedCounter = new AtomicInteger();
+    private int projectSummaryUnsafeCounter;
 
     public ProjectSummaryReportTaskService(
             ProjectRepository projectRepository,
             ProjectSummaryReportService projectSummaryReportService,
-            @Qualifier("taskBoardAsyncExecutor") Executor taskBoardAsyncExecutor) {
+            @Qualifier("projectSummaryReportTaskExecutor") Executor projectSummaryReportTaskExecutor) {
         this.projectRepository = projectRepository;
         this.projectSummaryReportService = projectSummaryReportService;
-        this.taskBoardAsyncExecutor = taskBoardAsyncExecutor;
+        this.projectSummaryReportTaskExecutor = projectSummaryReportTaskExecutor;
     }
 
     public AsyncTaskSubmissionResponse submitProjectSummaryReport(Long projectId) {
@@ -44,6 +48,7 @@ public class ProjectSummaryReportTaskService {
     public AsyncTaskSubmissionResponse submitProjectSummaryReport(
             Long projectId, Long currentUserId) {
         ensureProjectExists(projectId);
+
         ProjectSummaryReportTask task =
                 new ProjectSummaryReportTask(
                         UUID.randomUUID().toString(),
@@ -55,25 +60,41 @@ public class ProjectSummaryReportTaskService {
                         null,
                         null,
                         null);
+
         tasks.put(task.id(), task);
-        projectSummaryUnsafeCounter++;
 
         try {
             CompletableFuture
-                    .runAsync(
-                            () -> generateProjectSummaryReport(task.id(), projectId),
-                            taskBoardAsyncExecutor)
-                    .exceptionally(throwable -> {
-                        fail(task.id(), throwable);
-                        return null;
+                    .supplyAsync(() -> {
+                        markRunning(task.id());
+                        return projectSummaryReportService.buildProjectSummaryReport(projectId);
+                    }, projectSummaryReportTaskExecutor)
+                    .whenComplete((report, throwable) -> {
+                        if (throwable != null) {
+                            fail(task.id(), throwable);
+                            return;
+                        }
+
+                        complete(task.id(), report);
                     });
+        } catch (RejectedExecutionException exception) {
+            tasks.remove(task.id());
+
+            throw new ResponseStatusException(
+                    HttpStatus.SERVICE_UNAVAILABLE,
+                    "Async task queue is full"
+            );
         } catch (RuntimeException exception) {
-            fail(task.id(), exception);
+            tasks.remove(task.id());
+
+            throw exception;
         }
+
+        projectSummaryUnsafeCounter++;
+        submittedCounter.incrementAndGet();
 
         return new AsyncTaskSubmissionResponse(
                 task.id(),
-                AsyncOperationType.PROJECT_SUMMARY_REPORT,
                 task.status(),
                 task.createdAt());
     }
@@ -95,14 +116,8 @@ public class ProjectSummaryReportTaskService {
                 countTasksByStatus(AsyncTaskStatus.RUNNING),
                 countTasksByStatus(AsyncTaskStatus.COMPLETED),
                 countTasksByStatus(AsyncTaskStatus.FAILED),
+                submittedCounter.get(),
                 projectSummaryUnsafeCounter);
-    }
-
-    private void generateProjectSummaryReport(String taskId, Long projectId) {
-        markRunning(taskId);
-        ProjectSummaryReportResponse report =
-                projectSummaryReportService.buildProjectSummaryReport(projectId);
-        complete(taskId, report);
     }
 
     private ProjectSummaryReportTask get(String taskId) {
@@ -168,7 +183,6 @@ public class ProjectSummaryReportTaskService {
     private AsyncTaskStatusResponse<Object> toResponse(ProjectSummaryReportTask task) {
         return new AsyncTaskStatusResponse<>(
                 task.id(),
-                AsyncOperationType.PROJECT_SUMMARY_REPORT,
                 task.status(),
                 task.createdAt(),
                 task.startedAt(),

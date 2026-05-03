@@ -8,6 +8,8 @@ import com.ykleyka.taskboard.security.SpaCsrfTokenRequestHandler;
 import java.time.Instant;
 import java.util.Arrays;
 import java.util.List;
+
+import jakarta.servlet.DispatcherType;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
@@ -45,8 +47,10 @@ public class SecurityConfig {
                 .sessionManagement(session ->
                         session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
                 .authorizeHttpRequests(auth -> auth
+                        .dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(
+                                "/error",
                                 "/api/auth/csrf",
                                 "/api/auth/register",
                                 "/api/auth/login",
