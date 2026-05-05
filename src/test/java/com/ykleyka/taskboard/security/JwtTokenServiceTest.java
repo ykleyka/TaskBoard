@@ -22,15 +22,14 @@ class JwtTokenServiceTest {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @Test
-    void generateAndParse_whenTokenIsValid_returnsUserIdAndExpiration() {
+    void generateAndParse_whenTokenIsValid_returnsUserId() {
         JwtTokenService service = tokenService(Duration.ofHours(2));
         User user = user(15L, "alice");
 
         GeneratedToken generated = service.generate(user);
-        TokenClaims claims = service.parse(generated.value());
+        Long userId = service.parseUserId(generated.value());
 
-        assertEquals(15L, claims.userId());
-        assertEquals(generated.expiresAt().getEpochSecond(), claims.expiresAt().getEpochSecond());
+        assertEquals(15L, userId);
         assertTrue(generated.expiresAt().isAfter(Instant.now()));
     }
 
@@ -39,7 +38,7 @@ class JwtTokenServiceTest {
         JwtTokenService service = tokenService(Duration.ofHours(1));
 
         BadCredentialsException exception =
-                assertThrows(BadCredentialsException.class, () -> service.parse("not-a-jwt"));
+                assertThrows(BadCredentialsException.class, () -> service.parseUserId("not-a-jwt"));
 
         assertEquals("Malformed bearer token", exception.getMessage());
     }
@@ -51,7 +50,7 @@ class JwtTokenServiceTest {
         String tampered = token.substring(0, token.length() - 2) + "xx";
 
         BadCredentialsException exception =
-                assertThrows(BadCredentialsException.class, () -> service.parse(tampered));
+                assertThrows(BadCredentialsException.class, () -> service.parseUserId(tampered));
 
         assertEquals("Invalid bearer token signature", exception.getMessage());
     }
@@ -62,7 +61,7 @@ class JwtTokenServiceTest {
         String token = service.generate(user(17L, "charlie")).value();
 
         BadCredentialsException exception =
-                assertThrows(BadCredentialsException.class, () -> service.parse(token));
+                assertThrows(BadCredentialsException.class, () -> service.parseUserId(token));
 
         assertEquals("Bearer token expired", exception.getMessage());
     }
@@ -73,7 +72,7 @@ class JwtTokenServiceTest {
         String token = signedToken(Map.of("exp", Instant.now().plusSeconds(3600).getEpochSecond()));
 
         BadCredentialsException exception =
-                assertThrows(BadCredentialsException.class, () -> service.parse(token));
+                assertThrows(BadCredentialsException.class, () -> service.parseUserId(token));
 
         assertEquals("Bearer token is missing subject", exception.getMessage());
     }
@@ -88,7 +87,7 @@ class JwtTokenServiceTest {
                                 "exp", Instant.now().plusSeconds(3600).getEpochSecond()));
 
         BadCredentialsException exception =
-                assertThrows(BadCredentialsException.class, () -> service.parse(token));
+                assertThrows(BadCredentialsException.class, () -> service.parseUserId(token));
 
         assertEquals("Bearer token subject is invalid", exception.getMessage());
     }
@@ -99,7 +98,7 @@ class JwtTokenServiceTest {
         String token = signedToken(Map.of("sub", "18"));
 
         BadCredentialsException exception =
-                assertThrows(BadCredentialsException.class, () -> service.parse(token));
+                assertThrows(BadCredentialsException.class, () -> service.parseUserId(token));
 
         assertEquals("Bearer token is missing exp", exception.getMessage());
     }
@@ -111,15 +110,6 @@ class JwtTokenServiceTest {
 
         assertEquals("token-value", token.value());
         assertEquals(expiresAt, token.expiresAt());
-    }
-
-    @Test
-    void tokenClaims_recordStoresUserIdAndExpiration() {
-        Instant expiresAt = Instant.parse("2030-01-01T00:00:00Z");
-        TokenClaims claims = new TokenClaims(10L, expiresAt);
-
-        assertEquals(10L, claims.userId());
-        assertEquals(expiresAt, claims.expiresAt());
     }
 
     private JwtTokenService tokenService(Duration ttl) {

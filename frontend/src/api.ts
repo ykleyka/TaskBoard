@@ -21,13 +21,8 @@ import type {
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080";
 
 let token: string | null = null;
-let csrfToken: string | null = null;
-let csrfHeaderName = "X-XSRF-TOKEN";
 
 export function setApiToken(nextToken: string | null) {
-  if (token !== nextToken) {
-    resetCsrfToken();
-  }
   token = nextToken;
 }
 
@@ -43,51 +38,11 @@ export class ApiError extends Error {
 }
 
 type JsonBody = Record<string, unknown> | Array<Record<string, unknown>>;
-type CsrfResponse = {
-  headerName: string;
-  token: string;
-};
-
-const UNSAFE_METHODS = new Set(["POST", "PUT", "PATCH", "DELETE"]);
-
-function isUnsafeMethod(method?: string) {
-  return UNSAFE_METHODS.has((method ?? "GET").toUpperCase());
-}
-
-function resetCsrfToken() {
-  csrfToken = null;
-  csrfHeaderName = "X-XSRF-TOKEN";
-}
-
-async function ensureCsrfToken() {
-  if (csrfToken) {
-    return;
-  }
-
-  const response = await fetch(`${API_BASE}/api/auth/csrf`, {
-    method: "GET",
-    headers: { Accept: "application/json" },
-    credentials: "include"
-  });
-
-  if (!response.ok) {
-    throw new ApiError(response.status, null, "Could not load CSRF token");
-  }
-
-  const body = (await response.json()) as CsrfResponse;
-  csrfHeaderName = body.headerName;
-  csrfToken = body.token;
-}
 
 async function sendRequest(
   path: string,
-  options: RequestInit & { bodyJson?: JsonBody },
-  unsafe: boolean
+  options: RequestInit & { bodyJson?: JsonBody }
 ) {
-  if (unsafe) {
-    await ensureCsrfToken();
-  }
-
   const headers = new Headers(options.headers);
   headers.set("Accept", "application/json");
   if (options.bodyJson !== undefined) {
@@ -96,26 +51,16 @@ async function sendRequest(
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   }
-  if (unsafe && csrfToken) {
-    headers.set(csrfHeaderName, csrfToken);
-  }
 
   return fetch(`${API_BASE}${path}`, {
     ...options,
     headers,
-    credentials: "include",
     body: options.bodyJson === undefined ? options.body : JSON.stringify(options.bodyJson)
   });
 }
 
 async function request<T>(path: string, options: RequestInit & { bodyJson?: JsonBody } = {}) {
-  const unsafe = isUnsafeMethod(options.method);
-  let response = await sendRequest(path, options, unsafe);
-
-  if (unsafe && response.status === 403) {
-    resetCsrfToken();
-    response = await sendRequest(path, options, unsafe);
-  }
+  const response = await sendRequest(path, options);
 
   if (!response.ok) {
     let payload: ApiErrorPayload | null = null;

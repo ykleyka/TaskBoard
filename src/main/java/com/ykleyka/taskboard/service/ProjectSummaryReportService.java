@@ -47,6 +47,7 @@ public class ProjectSummaryReportService {
                         .filter(Objects::nonNull)
                         .min(Comparator.naturalOrder())
                         .orElse(null);
+
         return new ProjectSummaryReportResponse(
                 project.id(),
                 project.name(),

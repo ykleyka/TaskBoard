@@ -2242,7 +2242,12 @@ td {
     min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
-    white-space: nowrap;
+}
+
+.task-card-top > span:last-child {
+    text-align: right;
+    overflow-wrap: anywhere;
+    white-space: normal;
 }
 
 .task-card-tags .tag-chip,

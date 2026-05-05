@@ -238,7 +238,7 @@ const TEXT = {
         taskDescription: "Описание",
         assignee: "Исполнитель",
         priority: "Приоритет",
-        dueDate: "Срок",
+        dueDate: "Срок и время",
         chooseUser: "Выберите пользователя",
         role: "Роль",
         user: "Пользователь",
@@ -264,6 +264,7 @@ function formatDate(value: string | null | undefined) {
     return new Intl.DateTimeFormat("ru-RU", {
         month: "short",
         day: "2-digit",
+        hour12: false,
         hour: "2-digit",
         minute: "2-digit"
     }).format(new Date(value));
@@ -2443,7 +2444,7 @@ function BoardView({
                               <span className={`priority-chip priority-${task.priority.toLowerCase()}`}>
                                 {priorityLabels[task.priority]}
                               </span>
-                                                            <span>{formatShortDate(task.dueDate)}</span>
+                    <span>{formatDate(task.dueDate)}</span>
                                                         </div>
                                                         <h3 title={task.title}>{task.title}</h3>
                                                         {(isAssignedToCurrentUser || isCreatedByCurrentUser) && (
@@ -2615,7 +2616,7 @@ function ReportsView({
                                 <Metric label={text.reports.unassigned} value={result.unassignedTasksCount ?? 0} />
                                 <Metric
                                     label={text.reports.nearestDueDate}
-                                    value={formatShortDate(result.nearestDueDate ?? null)}
+                                    value={formatDate(result.nearestDueDate ?? null)}
                                 />
                             </div>
                         </>
@@ -3118,7 +3119,7 @@ function TaskDetailsInfoCard({
                 <TaskInfoRow icon={FolderOpen} label={text.forms.projectSelect} value={selectedProject?.name ?? text.common.project} highlight />
                 <TaskInfoRow icon={UserCircle} label={"Создатель"} value={task.creatorUsername ?? text.common.unknown} />
                 <TaskInfoRow icon={UserCircle} label={text.forms.assignee} value={task.assigneeUsername ?? text.common.unassigned} />
-                <TaskInfoRow icon={Clock3} label={text.forms.dueDate} value={formatShortDate(task.dueDate)} accent={Boolean(task.dueDate)} />
+                <TaskInfoRow icon={Clock3} label={text.forms.dueDate} value={formatDate(task.dueDate)} accent={Boolean(task.dueDate)} />
                 <TaskInfoRow icon={Clock3} label={"Создано"} value={formatDate(task.createdAt)} />
                 <TaskInfoRow icon={Clock3} label={"Обновлено"} value={formatDate(task.updatedAt)} />
             </div>

@@ -11,7 +11,6 @@ import static org.mockito.Mockito.when;
 
 import com.ykleyka.taskboard.model.User;
 import com.ykleyka.taskboard.repository.UserRepository;
-import java.time.Instant;
 import java.util.Optional;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Test;
@@ -48,7 +47,7 @@ class JwtAuthenticationFilterTest {
 
         assertNull(SecurityContextHolder.getContext().getAuthentication());
         assertEquals(request, chain.getRequest());
-        verify(tokenService, never()).parse(anyString());
+        verify(tokenService, never()).parseUserId(anyString());
     }
 
     @Test
@@ -62,7 +61,7 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(request, response, chain);
 
         assertNull(SecurityContextHolder.getContext().getAuthentication());
-        verify(tokenService, never()).parse(anyString());
+        verify(tokenService, never()).parseUserId(anyString());
     }
 
     @Test
@@ -76,7 +75,7 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(request, response, chain);
 
         assertNull(SecurityContextHolder.getContext().getAuthentication());
-        verify(tokenService, never()).parse(anyString());
+        verify(tokenService, never()).parseUserId(anyString());
     }
 
     @Test
@@ -88,8 +87,7 @@ class JwtAuthenticationFilterTest {
         MockFilterChain chain = new MockFilterChain();
         User user = user(10L, "alice");
 
-        when(tokenService.parse("token-value"))
-                .thenReturn(new TokenClaims(10L, Instant.parse("2030-01-01T00:00:00Z")));
+        when(tokenService.parseUserId("token-value")).thenReturn(10L);
         when(userRepository.findById(10L)).thenReturn(Optional.of(user));
 
         filter.doFilter(request, response, chain);
@@ -116,7 +114,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
 
-        when(tokenService.parse("bad-token")).thenThrow(new BadCredentialsException("bad"));
+        when(tokenService.parseUserId("bad-token")).thenThrow(new BadCredentialsException("bad"));
 
         filter.doFilter(request, response, chain);
 
@@ -132,8 +130,7 @@ class JwtAuthenticationFilterTest {
         MockHttpServletResponse response = new MockHttpServletResponse();
         MockFilterChain chain = new MockFilterChain();
 
-        when(tokenService.parse("token-value"))
-                .thenReturn(new TokenClaims(404L, Instant.parse("2030-01-01T00:00:00Z")));
+        when(tokenService.parseUserId("token-value")).thenReturn(404L);
         when(userRepository.findById(404L)).thenReturn(Optional.empty());
 
         filter.doFilter(request, response, chain);
@@ -155,7 +152,7 @@ class JwtAuthenticationFilterTest {
         filter.doFilter(request, response, chain);
 
         assertEquals("existing", SecurityContextHolder.getContext().getAuthentication().getPrincipal());
-        verify(tokenService, never()).parse(anyString());
+        verify(tokenService, never()).parseUserId(anyString());
     }
 
     @Test

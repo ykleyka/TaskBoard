@@ -47,14 +47,13 @@ public class JwtTokenService {
         String payload =
                 encodeJson(Map.of(
                         "sub", String.valueOf(user.getId()),
-                        "username", user.getUsername(),
                         "iat", issuedAt.getEpochSecond(),
                         "exp", expiresAt.getEpochSecond()));
         String unsignedToken = header + "." + payload;
         return new GeneratedToken(unsignedToken + "." + sign(unsignedToken), expiresAt);
     }
 
-    public TokenClaims parse(String token) {
+    public Long parseUserId(String token) {
         String[] parts = token.split("\\.");
         if (parts.length != 3) {
             throw new BadCredentialsException("Malformed bearer token");
@@ -73,7 +72,7 @@ public class JwtTokenService {
             throw new BadCredentialsException("Bearer token expired");
         }
 
-        return new TokenClaims(requiredUserId(payload), expiresAt);
+        return requiredUserId(payload);
     }
 
     private String encodeJson(Map<String, Object> value) {
