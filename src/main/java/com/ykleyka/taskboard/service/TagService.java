@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.List;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -56,6 +57,16 @@ public class TagService {
                         .getContent();
         tagCache.putTags(key, content);
         return content;
+    }
+
+    public Page<TagResponse> getTagsPage(Pageable pageable) {
+        return tagRepository.findAllWithUsageCount(pageable)
+                .map(
+                        row ->
+                                new TagResponse(
+                                        row.getId(),
+                                        row.getName(),
+                                        Math.toIntExact(row.getUsageCount())));
     }
 
     public TagResponse createTag(TagRequest request) {

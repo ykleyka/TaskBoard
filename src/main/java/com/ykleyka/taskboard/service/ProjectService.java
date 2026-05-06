@@ -36,6 +36,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -68,6 +69,11 @@ public class ProjectService {
                 .getContent();
     }
 
+    public Page<ProjectResponse> getProjectsPage(Long currentUserId, Pageable pageable) {
+        return projectRepository.findAllVisibleToUser(currentUserId, pageable)
+                .map(mapper::toResponse);
+    }
+
     public List<ProjectResponse> getProjects(Pageable pageable) {
         PageKey key = PageKey.from(pageable);
         List<ProjectResponse> cached = projectCache.getProjects(key);
@@ -83,6 +89,10 @@ public class ProjectService {
                 projectRepository.findAll(pageable).map(mapper::toResponse).getContent();
         projectCache.putProjects(key, content);
         return content;
+    }
+
+    public Page<ProjectResponse> getProjectsPage(Pageable pageable) {
+        return projectRepository.findAll(pageable).map(mapper::toResponse);
     }
 
     public ProjectDetailsResponse getProjectById(Long id, Long currentUserId) {
@@ -153,9 +163,13 @@ public class ProjectService {
     @Transactional
     public ProjectUserSummaryResponse deleteProjectMember(
             Long projectId, Long userId, Long currentUserId) {
-        ProjectRole actorRole = requireProjectRole(projectId, currentUserId, PROJECT_EDIT_ROLES);
         ProjectMember member = findProjectMember(projectId, userId);
-        ensureMemberCanBeRemoved(actorRole, member);
+        if (!currentUserId.equals(userId)) {
+            ProjectRole actorRole = requireProjectRole(projectId, currentUserId, PROJECT_EDIT_ROLES);
+            ensureMemberCanBeRemoved(actorRole, member);
+        } else {
+            ensureOwnerRoleCanChange(member, null);
+        }
         return deleteProjectMemberInternal(projectId, userId);
     }
 

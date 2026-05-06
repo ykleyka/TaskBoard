@@ -12,9 +12,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.groups.Default;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
@@ -42,10 +42,10 @@ public class UserController {
 
     @Operation(summary = "List users", description = "Returns a paginated list of users.")
     @GetMapping
-    public List<UserResponse> getUsers(
+    public Page<UserResponse> getUsers(
             @AuthenticationPrincipal AuthenticatedUser currentUser,
             @ParameterObject @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
-        return service.getUsers(currentUser.id(), pageable).stream().map(mapper::toResponse).toList();
+        return service.getUsersPage(currentUser.id(), pageable).map(mapper::toResponse);
     }
 
     @Operation(summary = "Get user by id", description = "Returns a single user by identifier.")

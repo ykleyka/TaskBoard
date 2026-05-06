@@ -10,19 +10,17 @@ import com.ykleyka.taskboard.exception.TaskNotFoundException;
 import com.ykleyka.taskboard.exception.UserNotFoundException;
 import com.ykleyka.taskboard.mapper.CommentMapper;
 import com.ykleyka.taskboard.model.Comment;
-import com.ykleyka.taskboard.model.ProjectMemberId;
 import com.ykleyka.taskboard.model.Task;
 import com.ykleyka.taskboard.model.User;
-import com.ykleyka.taskboard.model.enums.ProjectRole;
 import com.ykleyka.taskboard.repository.CommentRepository;
 import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
 import com.ykleyka.taskboard.repository.UserRepository;
 import java.time.Instant;
 import java.util.List;
-import java.util.Set;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -32,9 +30,6 @@ import org.springframework.web.server.ResponseStatusException;
 @Slf4j
 @RequiredArgsConstructor
 public class CommentService {
-    private static final Set<ProjectRole> PROJECT_EDIT_ROLES =
-            Set.of(ProjectRole.OWNER, ProjectRole.MANAGER);
-
     private final CommentMapper mapper;
     private final CommentRepository commentRepository;
     private final TaskRepository taskRepository;
@@ -70,6 +65,20 @@ public class CommentService {
                         .getContent();
         commentCache.putByTaskId(key, content);
         return content;
+    }
+
+    public Page<CommentResponse> getCommentsByTaskIdPage(
+            Long taskId, Pageable pageable, Long currentUserId) {
+        Task task = findTask(taskId);
+        requireProjectMember(task, currentUserId);
+        return getCommentsByTaskIdPage(taskId, pageable);
+    }
+
+    public Page<CommentResponse> getCommentsByTaskIdPage(Long taskId, Pageable pageable) {
+        if (!taskRepository.existsById(taskId)) {
+            throw new TaskNotFoundException(taskId);
+        }
+        return commentRepository.findAllByTaskId(taskId, pageable).map(mapper::toResponse);
     }
 
     public CommentResponse createComment(Long taskId, CommentRequest request, Long currentUserId) {
@@ -169,18 +178,9 @@ public class CommentService {
         if (comment.getAuthor() != null && userId.equals(comment.getAuthor().getId())) {
             return;
         }
-        Long projectId = requireTaskProjectId(task);
-        ProjectRole role =
-                projectMemberRepository
-                        .findById(new ProjectMemberId(projectId, userId))
-                        .map(member -> member.getRole())
-                        .orElseThrow(() ->
-                                new ResponseStatusException(HttpStatus.NOT_FOUND, "Comment not found"));
-        if (!PROJECT_EDIT_ROLES.contains(role)) {
-            throw new ResponseStatusException(
-                    HttpStatus.FORBIDDEN,
-                    "Only the comment author or project managers can modify this comment");
-        }
+        throw new ResponseStatusException(
+                HttpStatus.FORBIDDEN,
+                "Only the comment author can modify this comment");
     }
 
     private void requireProjectMember(Task task, Long userId) {

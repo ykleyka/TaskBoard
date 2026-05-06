@@ -31,6 +31,62 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
     @EntityGraph(attributePaths = {"tags", "comments"})
     List<Task> findAllByProjectId(Long projectId);
 
+    @Query("""
+            SELECT COUNT(DISTINCT t)
+            FROM Task t
+            JOIN t.project p
+            JOIN p.members member
+            WHERE member.user.id = :userId
+              AND t.assignee.id = :userId
+            """)
+    long countAssignedVisibleToUser(@Param("userId") Long userId);
+
+    @Query("""
+            SELECT COUNT(DISTINCT t)
+            FROM Task t
+            JOIN t.project p
+            JOIN p.members member
+            WHERE member.user.id = :userId
+              AND t.assignee.id = :userId
+              AND t.status = :status
+            """)
+    long countAssignedVisibleToUserAndStatus(
+            @Param("userId") Long userId, @Param("status") Status status);
+
+    @Query("""
+            SELECT COUNT(DISTINCT t)
+            FROM Task t
+            JOIN t.project p
+            JOIN p.members member
+            WHERE member.user.id = :userId
+              AND t.assignee.id = :userId
+              AND t.dueDate IS NOT NULL
+              AND t.dueDate < :now
+              AND t.status <> :completed
+            """)
+    long countOverdueAssignedVisibleToUser(
+            @Param("userId") Long userId,
+            @Param("now") Instant now,
+            @Param("completed") Status completed);
+
+    @Query("""
+            SELECT COUNT(DISTINCT t)
+            FROM Task t
+            JOIN t.project p
+            JOIN p.members member
+            WHERE member.user.id = :userId
+              AND t.assignee.id = :userId
+              AND t.dueDate IS NOT NULL
+              AND t.dueDate >= :todayStart
+              AND t.dueDate < :tomorrowStart
+              AND t.status <> :completed
+            """)
+    long countDueTodayAssignedVisibleToUser(
+            @Param("userId") Long userId,
+            @Param("todayStart") Instant todayStart,
+            @Param("tomorrowStart") Instant tomorrowStart,
+            @Param("completed") Status completed);
+
     @EntityGraph(attributePaths = {"project", "creator", "assignee"})
     Page<Task> findAllByStatus(Status status, Pageable pageable);
 
@@ -69,8 +125,13 @@ public interface TaskRepository extends JpaRepository<Task, Long> {
             JOIN t.project p
             JOIN p.members member
             WHERE member.user.id = :userId
+              AND t.assignee.id = :userId
+              AND t.status <> :completed
             """)
-    List<Task> findAllVisibleToUserList(@Param("userId") Long userId);
+    Page<Task> findUpcomingAssignedVisibleToUser(
+            @Param("userId") Long userId,
+            @Param("completed") Status completed,
+            Pageable pageable);
 
     @EntityGraph(attributePaths = {"project", "creator", "assignee"})
     @Query("""

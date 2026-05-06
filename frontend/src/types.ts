@@ -3,6 +3,18 @@ export type TaskStatus = "TODO" | "IN_PROGRESS" | "COMPLETED";
 export type Priority = "LOW" | "MEDIUM" | "HIGH" | "URGENT";
 export type AsyncTaskStatus = "SUBMITTED" | "RUNNING" | "COMPLETED" | "FAILED";
 
+export interface ApiPage<T> {
+  content: T[];
+  totalElements: number;
+  totalPages: number;
+  size: number;
+  number: number;
+  numberOfElements: number;
+  first: boolean;
+  last: boolean;
+  empty: boolean;
+}
+
 export interface UserResponse {
   id: number;
   username: string;

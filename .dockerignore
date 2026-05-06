@@ -1,0 +1,16 @@
+.git
+.github
+.idea
+.vscode
+target
+logs
+docs
+load-tests
+frontend/node_modules
+frontend/dist
+frontend/*.log
+frontend/*.tsbuildinfo
+.env
+*.log
+stdout
+TaskBoard.iml

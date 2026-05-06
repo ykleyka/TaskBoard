@@ -12,7 +12,6 @@ mvnw.cmd
 mvnw
 google_checks.xml
 checkstyle.xml
-docker-compose.yml
 db
 .env
 utils/EnvConfig.java
@@ -59,3 +58,4 @@ frontend/vite.config.js
 .vscode/
 load-tests/
 /docs/
+taskboard.dump

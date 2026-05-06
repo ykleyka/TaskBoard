@@ -9,9 +9,9 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.groups.Default;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -35,13 +35,13 @@ public class CommentController {
 
     @Operation(summary = "List task comments", description = "Returns comments for the specified task.")
     @GetMapping("/tasks/{taskId}/comments")
-    public List<CommentResponse> getCommentsByTaskId(
+    public Page<CommentResponse> getCommentsByTaskId(
             @PathVariable @Positive Long taskId,
             @AuthenticationPrincipal AuthenticatedUser currentUser,
             @ParameterObject
                     @PageableDefault(page = 0, size = 20, sort = "createdAt")
                     Pageable pageable) {
-        return service.getCommentsByTaskId(taskId, pageable, currentUser.id());
+        return service.getCommentsByTaskIdPage(taskId, pageable, currentUser.id());
     }
 
     @Operation(summary = "Create comment", description = "Creates a new comment for the specified task.")

@@ -13,9 +13,9 @@ import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
 import jakarta.validation.groups.Default;
 import java.time.Instant;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -41,12 +41,12 @@ public class TaskController {
 
     @Operation(summary = "List tasks", description = "Returns tasks with optional status and assignee filters.")
     @GetMapping
-    public List<TaskResponse> getTasks(
+    public Page<TaskResponse> getTasks(
             @AuthenticationPrincipal AuthenticatedUser currentUser,
             @RequestParam(required = false) Status status,
             @RequestParam(required = false) String assignee,
             @ParameterObject @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
-        return service.getTasks(status, assignee, currentUser.id(), pageable);
+        return service.getTasksPage(status, assignee, currentUser.id(), pageable);
     }
 
     @Operation(summary = "Get task by id", description = "Returns detailed task information.")
@@ -60,29 +60,29 @@ public class TaskController {
     @Operation(summary = "Search tasks by project and tag",
             description = "Searches tasks by project, tag and optional filters.")
     @GetMapping("/search")
-    public List<TaskResponse> searchTasks(
+    public Page<TaskResponse> searchTasks(
             @AuthenticationPrincipal AuthenticatedUser currentUser,
             @RequestParam @Positive Long projectId,
             @RequestParam(required = false) String tagName,
             @RequestParam(required = false) Status status,
             @RequestParam(required = false) String assignee,
-            @ParameterObject @PageableDefault(page = 0, size = 20) Pageable pageable) {
-        return service.searchTasksByProjectIdAndTag(
+        @ParameterObject @PageableDefault(page = 0, size = 20) Pageable pageable) {
+        return service.searchTasksByProjectIdAndTagPage(
                 projectId, tagName, status, assignee, pageable, currentUser.id());
     }
 
     @Operation(summary = "Search overdue tasks",
             description = "Searches overdue tasks using the native query endpoint.")
     @GetMapping("/overdue")
-    public List<TaskResponse> searchOverdueTasksNative(
+    public Page<TaskResponse> searchOverdueTasksNative(
             @AuthenticationPrincipal AuthenticatedUser currentUser,
             @RequestParam @Positive Long projectId,
             @RequestParam(required = false) String tagName,
             @RequestParam(required = false) Status status,
             @RequestParam(required = false) String assignee,
             @RequestParam(required = false) Instant dueBefore,
-            @ParameterObject @PageableDefault(page = 0, size = 20) Pageable pageable) {
-        return service.searchOverdueTasksByProjectIdAndTagNative(
+        @ParameterObject @PageableDefault(page = 0, size = 20) Pageable pageable) {
+        return service.searchOverdueTasksByProjectIdAndTagNativePage(
                 projectId, tagName, status, assignee, dueBefore, pageable, currentUser.id());
     }
 

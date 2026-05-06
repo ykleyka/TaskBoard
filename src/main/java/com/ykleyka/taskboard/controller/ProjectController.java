@@ -20,6 +20,7 @@ import jakarta.validation.groups.Default;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.http.ResponseEntity;
@@ -46,10 +47,10 @@ public class ProjectController {
 
     @Operation(summary = "List projects", description = "Returns a paginated list of projects.")
     @GetMapping
-    public List<ProjectResponse> getProjects(
+    public Page<ProjectResponse> getProjects(
             @AuthenticationPrincipal AuthenticatedUser currentUser,
             @ParameterObject @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
-        return service.getProjects(currentUser.id(), pageable);
+        return service.getProjectsPage(currentUser.id(), pageable);
     }
 
     @Operation(summary = "Get project by id", description = "Returns detailed project information.")

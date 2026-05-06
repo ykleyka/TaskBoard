@@ -4,6 +4,8 @@ import {
     BarChart3,
     CheckCircle2,
     ChevronDown,
+    ChevronLeft,
+    ChevronRight,
     Clock3,
     Edit3,
     FolderOpen,
@@ -12,6 +14,7 @@ import {
     LogOut,
     MessageSquare,
     Plus,
+    SlidersHorizontal,
     Shield,
     Sparkles,
     Tag,
@@ -22,9 +25,13 @@ import {
     X
 } from "lucide-react";
 import type { FormEvent, ReactNode } from "react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import DatePicker from "react-datepicker";
+import { ru } from "date-fns/locale";
+import "react-datepicker/dist/react-datepicker.css";
 import { ApiError, api, setApiToken } from "./api";
 import type {
+    ApiPage,
     AsyncTaskStatusResponse,
     AuthResponse,
     CommentResponse,
@@ -42,7 +49,12 @@ import type {
 } from "./types";
 
 const TOKEN_KEY = "taskboard.accessToken";
+const VIEW_KEY = "taskboard.view";
+const SELECTED_PROJECT_KEY = "taskboard.selectedProjectId";
+const SELECTED_PROJECT_SNAPSHOT_KEY = "taskboard.selectedProjectSnapshot";
+const SELECTED_PROJECT_DETAILS_SNAPSHOT_KEY = "taskboard.selectedProjectDetailsSnapshot";
 const COMMENTS_PAGE_SIZE = 5;
+const DASHBOARD_PROJECTS_PAGE_SIZE = 6;
 
 const STATUSES: TaskStatus[] = ["TODO", "IN_PROGRESS", "COMPLETED"];
 const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
@@ -65,6 +77,101 @@ type TaskEditTag = {
     name: string;
     isNew?: boolean;
 };
+
+const PERSISTABLE_VIEWS: View[] = ["dashboard", "board", "reports", "team", "profile"];
+
+function getInitialView(): View {
+    const storedView = localStorage.getItem(VIEW_KEY);
+
+    return PERSISTABLE_VIEWS.includes(storedView as View)
+        ? storedView as View
+        : "dashboard";
+}
+
+function getInitialSelectedProjectId(): number | null {
+    const storedProjectId = localStorage.getItem(SELECTED_PROJECT_KEY);
+
+    if (!storedProjectId) {
+        return null;
+    }
+
+    const parsedProjectId = Number(storedProjectId);
+
+    return Number.isFinite(parsedProjectId) && parsedProjectId > 0
+        ? parsedProjectId
+        : null;
+}
+
+function getInitialSelectedProjectSnapshot(): ProjectResponse | null {
+    const storedProject = localStorage.getItem(SELECTED_PROJECT_SNAPSHOT_KEY);
+
+    if (!storedProject) {
+        return null;
+    }
+
+    try {
+        const parsedProject = JSON.parse(storedProject) as Partial<ProjectResponse>;
+
+        if (
+            typeof parsedProject.id === "number" &&
+            parsedProject.id > 0 &&
+            typeof parsedProject.name === "string"
+        ) {
+            const now = new Date().toISOString();
+            return {
+                id: parsedProject.id,
+                name: parsedProject.name,
+                description: parsedProject.description ?? null,
+                createdAt: parsedProject.createdAt ?? now,
+                updatedAt: parsedProject.updatedAt ?? now
+            };
+        }
+    } catch {
+        localStorage.removeItem(SELECTED_PROJECT_SNAPSHOT_KEY);
+    }
+
+    return null;
+}
+
+function getInitialSelectedProjectDetailsSnapshot(): ProjectDetailsResponse | null {
+    const selectedProjectId = getInitialSelectedProjectId();
+    const storedProject = localStorage.getItem(SELECTED_PROJECT_DETAILS_SNAPSHOT_KEY);
+
+    if (!selectedProjectId || !storedProject) {
+        return null;
+    }
+
+    try {
+        const parsedProject = JSON.parse(storedProject) as Partial<ProjectDetailsResponse>;
+
+        if (
+            parsedProject.id === selectedProjectId &&
+            typeof parsedProject.name === "string" &&
+            Array.isArray(parsedProject.users) &&
+            Array.isArray(parsedProject.tasks)
+        ) {
+            const now = new Date().toISOString();
+            return {
+                id: parsedProject.id,
+                name: parsedProject.name,
+                description: parsedProject.description ?? null,
+                createdAt: parsedProject.createdAt ?? now,
+                updatedAt: parsedProject.updatedAt ?? now,
+                membersCount: parsedProject.membersCount ?? parsedProject.users.length,
+                tasksCount: parsedProject.tasksCount ?? parsedProject.tasks.length,
+                completedTasksCount:
+                    parsedProject.completedTasksCount ??
+                    parsedProject.tasks.filter((task) => task.status === "COMPLETED").length,
+                users: parsedProject.users,
+                tasks: parsedProject.tasks
+            };
+        }
+    } catch {
+        localStorage.removeItem(SELECTED_PROJECT_DETAILS_SNAPSHOT_KEY);
+    }
+
+    return null;
+}
 
 const STATUS_LABELS: Record<TaskStatus, string> = {
     TODO: "К выполнению",
@@ -110,6 +217,7 @@ const TEXT = {
         deleteTask: "Удалить задачу",
         editProfile: "Редактировать",
         saveProfile: "Сохранить",
+        saveChanges: "Сохранить изменения",
         cancel: "Отмена",
         project: "Проект",
         newReport: "Новый отчет",
@@ -163,8 +271,8 @@ const TEXT = {
         activeTasks: "Активные задачи",
         dueToday: "Срок сегодня",
         collaborators: "Участники",
-        recentProjects: "Последние проекты",
-        recentSubtitle: "Проекты, доступные вам",
+        recentProjects: "Ваши проекты",
+        recentSubtitle: "Все проекты, в которых вы участвуете",
         upcomingTasks: "Ближайшие задачи",
         upcomingSubtitle: "Ближайшие сроки",
         emptyProjects: "Проектов пока нет",
@@ -294,6 +402,52 @@ function toIsoFromInput(value: string) {
     return value ? new Date(value).toISOString() : undefined;
 }
 
+
+function toLocalInputDateTime(date: Date) {
+    const offsetMinutes = date.getTimezoneOffset();
+    const localDate = new Date(date.getTime() - offsetMinutes * 60_000);
+    return localDate.toISOString().slice(0, 16);
+}
+
+function DateTime24Input({
+                             value,
+                             onChange
+                         }: {
+    value: string;
+    onChange: (value: string) => void;
+}) {
+    const parsedDate = value ? new Date(value) : null;
+    const selectedDate = parsedDate && !Number.isNaN(parsedDate.getTime()) ? parsedDate : null;
+
+    return (
+        <DatePicker
+            selected={selectedDate}
+            onChange={(date: Date | null) => {
+                if (!date) {
+                    onChange("");
+                    return;
+                }
+
+                const offsetMinutes = date.getTimezoneOffset();
+                const localDate = new Date(date.getTime() - offsetMinutes * 60_000);
+                onChange(localDate.toISOString().slice(0, 16));
+            }}
+            showTimeSelect
+            timeFormat="HH:mm"
+            timeIntervals={5}
+            timeCaption="Время"
+            dateFormat="dd.MM.yyyy HH:mm"
+            locale={ru}
+            placeholderText="Выберите дату и время"
+            className="datetime-picker-input"
+            wrapperClassName="datetime-picker-wrapper"
+            calendarClassName="taskboard-datepicker"
+            popperClassName="taskboard-datepicker-popper"
+            isClearable
+        />
+    );
+}
+
 function isOverdueTask(dueDate: string | null | undefined, status?: TaskStatus) {
     return Boolean(dueDate && status !== "COMPLETED" && new Date(dueDate).getTime() < Date.now());
 }
@@ -317,6 +471,25 @@ function displayName(user: UserResponse | null) {
 function welcomeText(user: UserResponse | null) {
     const name = displayName(user);
     return `С возвращением, ${name}`;
+}
+
+function getViewTitle(text: Text, view: View) {
+    switch (view) {
+        case "dashboard":
+            return text.nav.dashboard;
+        case "board":
+            return text.nav.board;
+        case "reports":
+            return text.nav.reports;
+        case "team":
+            return text.nav.team;
+        case "profile":
+            return text.nav.profile;
+        case "taskDetails":
+            return text.modals.taskDetails;
+        default:
+            return text.appTitle;
+    }
 }
 
 function errorMessage(error: unknown) {
@@ -345,23 +518,39 @@ export default function App() {
         localStorage.getItem(TOKEN_KEY)
     );
     const [currentUser, setCurrentUser] = useState<UserResponse | null>(null);
-    const [view, setView] = useState<View>("dashboard");
+    const [view, setView] = useState<View>(() => getInitialView());
     const [taskDetailsBackView, setTaskDetailsBackView] = useState<View>("board");
     const [taskDetailsMode, setTaskDetailsMode] = useState<TaskDetailsMode>("view");
     const [isCreatingTask, setIsCreatingTask] = useState(false);
     const [busy, setBusy] = useState(Boolean(accessToken));
     const [loadingProject, setLoadingProject] = useState(false);
+    const projectLoadRequestId = useRef(0);
+    const reportLoadRequestId = useRef(0);
+    const lastAutoReportProjectId = useRef<number | null>(null);
     const [notice, setNotice] = useState<string | null>(null);
     const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
-    const [projects, setProjects] = useState<ProjectResponse[]>([]);
+    const [projects, setProjects] = useState<ProjectResponse[]>(() => {
+        const cachedProject = getInitialSelectedProjectSnapshot();
+        return cachedProject ? [cachedProject] : [];
+    });
+    const [projectsPage, setProjectsPage] = useState<ApiPage<ProjectResponse> | null>(null);
+    const [loadingProjectsPage, setLoadingProjectsPage] = useState(false);
     const [users, setUsers] = useState<UserResponse[]>([]);
     const [tags, setTags] = useState<TagResponse[]>([]);
-    const [selectedProjectId, setSelectedProjectId] = useState<number | null>(null);
-    const [selectedProject, setSelectedProject] = useState<ProjectDetailsResponse | null>(null);
+    const [selectedProjectId, setSelectedProjectId] = useState<number | null>(() =>
+        getInitialSelectedProjectId()
+    );
+    const [selectedProject, setSelectedProject] = useState<ProjectDetailsResponse | null>(() =>
+        getInitialSelectedProjectDetailsSnapshot()
+    );
     const [modal, setModal] = useState<Modal>(null);
     const [activeTask, setActiveTask] = useState<TaskDetailsResponse | null>(null);
     const [report, setReport] =
         useState<AsyncTaskStatusResponse<ProjectSummaryReportResponse> | null>(null);
+    const [reportProjectId, setReportProjectId] = useState<number | null>(null);
+    const [pendingReport, setPendingReport] =
+        useState<AsyncTaskStatusResponse<ProjectSummaryReportResponse> | null>(null);
+    const [pendingReportProjectId, setPendingReportProjectId] = useState<number | null>(null);
     const [projectFormMode, setProjectFormMode] = useState<"create" | "edit">("create");
     const [projectForm, setProjectForm] = useState({ name: "", description: "" });
     const [taskForm, setTaskForm] = useState({
@@ -413,6 +602,49 @@ export default function App() {
 
 
     useEffect(() => {
+        if (PERSISTABLE_VIEWS.includes(view)) {
+            localStorage.setItem(VIEW_KEY, view);
+        }
+    }, [view]);
+
+    useEffect(() => {
+        if (selectedProjectId) {
+            localStorage.setItem(SELECTED_PROJECT_KEY, String(selectedProjectId));
+        } else {
+            localStorage.removeItem(SELECTED_PROJECT_KEY);
+            localStorage.removeItem(SELECTED_PROJECT_SNAPSHOT_KEY);
+            localStorage.removeItem(SELECTED_PROJECT_DETAILS_SNAPSHOT_KEY);
+        }
+    }, [selectedProjectId]);
+
+    useEffect(() => {
+        if (!selectedProjectId) {
+            return;
+        }
+
+        const selectedProjectSummary =
+            selectedProject && selectedProject.id === selectedProjectId
+                ? {
+                    id: selectedProject.id,
+                    name: selectedProject.name,
+                    description: selectedProject.description,
+                    createdAt: selectedProject.createdAt,
+                    updatedAt: selectedProject.updatedAt
+                }
+                : projects.find((project) => project.id === selectedProjectId);
+
+        if (selectedProjectSummary) {
+            localStorage.setItem(SELECTED_PROJECT_SNAPSHOT_KEY, JSON.stringify(selectedProjectSummary));
+        }
+    }, [projects, selectedProject, selectedProjectId]);
+
+    useEffect(() => {
+        if (selectedProject && selectedProject.id === selectedProjectId) {
+            localStorage.setItem(SELECTED_PROJECT_DETAILS_SNAPSHOT_KEY, JSON.stringify(selectedProject));
+        }
+    }, [selectedProject, selectedProjectId]);
+
+    useEffect(() => {
         setApiToken(accessToken);
         if (!accessToken) {
             setBusy(false);
@@ -422,14 +654,29 @@ export default function App() {
     }, [accessToken]);
 
     useEffect(() => {
-        if (!report || report.status === "COMPLETED" || report.status === "FAILED") {
+        if (!pendingReport || pendingReport.status === "COMPLETED" || pendingReport.status === "FAILED") {
             return;
         }
         const timer = window.setInterval(() => {
-            void refreshReport(report.asyncTaskId);
-        }, 1800);
+            void refreshReport(pendingReport.asyncTaskId, pendingReportProjectId, reportLoadRequestId.current);
+        }, 500);
         return () => window.clearInterval(timer);
-    }, [report?.asyncTaskId, report?.status]);
+    }, [pendingReport?.asyncTaskId, pendingReport?.status, pendingReportProjectId]);
+
+    useEffect(() => {
+        if (busy || view !== "reports" || !selectedProjectId) {
+            return;
+        }
+        if (pendingReportProjectId === selectedProjectId) {
+            return;
+        }
+        if (lastAutoReportProjectId.current === selectedProjectId) {
+            return;
+        }
+
+        lastAutoReportProjectId.current = selectedProjectId;
+        void generateReport(selectedProjectId);
+    }, [busy, view, selectedProjectId, pendingReportProjectId]);
 
     const currentRole = useMemo(() => {
         if (!selectedProject || !currentUser) {
@@ -461,19 +708,37 @@ export default function App() {
     );
     const canExtendActiveTaskDeadline = canEditActiveTask;
 
+    async function loadProjectsPage(page = 0) {
+        setLoadingProjectsPage(true);
+        try {
+            const nextProjectsPage = await api.projectsPage({
+                page,
+                size: DASHBOARD_PROJECTS_PAGE_SIZE,
+                sort: "updatedAt,desc"
+            });
+            setProjectsPage(nextProjectsPage);
+        } catch (error) {
+            setNotice(errorMessage(error));
+        } finally {
+            setLoadingProjectsPage(false);
+        }
+    }
+
     async function bootstrap(preferredProjectId?: number | null) {
         setBusy(true);
         try {
-            const [me, nextDashboard, nextProjects, nextUsers, nextTags] = await Promise.all([
+            const [me, nextDashboard, nextProjects, nextProjectsPage, nextUsers, nextTags] = await Promise.all([
                 api.me(),
                 api.dashboard(),
                 api.projects(),
+                api.projectsPage({ page: 0, size: DASHBOARD_PROJECTS_PAGE_SIZE, sort: "updatedAt,desc" }),
                 api.users(),
                 api.tags()
             ]);
             setCurrentUser(me);
             setDashboard(nextDashboard);
             setProjects(nextProjects);
+            setProjectsPage(nextProjectsPage);
             setUsers(nextUsers);
             setTags(nextTags);
 
@@ -503,15 +768,28 @@ export default function App() {
     }
 
     async function loadProject(projectId: number) {
+        const requestId = projectLoadRequestId.current + 1;
+        projectLoadRequestId.current = requestId;
+        const previousProjectId = selectedProjectId;
+
+        setSelectedProjectId(projectId);
         setLoadingProject(true);
         try {
             const nextProject = await api.project(projectId);
+            if (projectLoadRequestId.current !== requestId) {
+                return;
+            }
             setSelectedProject(nextProject);
             setSelectedProjectId(projectId);
         } catch (error) {
-            setNotice(errorMessage(error));
+            if (projectLoadRequestId.current === requestId) {
+                setSelectedProjectId(previousProjectId);
+                setNotice(errorMessage(error));
+            }
         } finally {
-            setLoadingProject(false);
+            if (projectLoadRequestId.current === requestId) {
+                setLoadingProject(false);
+            }
         }
     }
 
@@ -532,14 +810,24 @@ export default function App() {
 
     function logout() {
         localStorage.removeItem(TOKEN_KEY);
+        localStorage.removeItem(VIEW_KEY);
+        localStorage.removeItem(SELECTED_PROJECT_KEY);
+        localStorage.removeItem(SELECTED_PROJECT_SNAPSHOT_KEY);
+        localStorage.removeItem(SELECTED_PROJECT_DETAILS_SNAPSHOT_KEY);
         setApiToken(null);
         setAccessToken(null);
         setCurrentUser(null);
         setDashboard(null);
         setProjects([]);
+        setProjectsPage(null);
+        setLoadingProjectsPage(false);
         setSelectedProject(null);
         setSelectedProjectId(null);
         setReport(null);
+        setReportProjectId(null);
+        setPendingReport(null);
+        setPendingReportProjectId(null);
+        reportLoadRequestId.current += 1;
     }
 
     function openCreateProjectModal() {
@@ -587,13 +875,60 @@ export default function App() {
         if (!selectedProjectId) {
             return;
         }
+        const nextView = view === "team" ? "team" : "board";
         try {
             await api.deleteProject(selectedProjectId);
             setSelectedProject(null);
             setSelectedProjectId(null);
             setModal(null);
             await bootstrap(null);
-            setView("board");
+            setView(nextView);
+        } catch (error) {
+            setNotice(errorMessage(error));
+        }
+    }
+
+    function requestLeaveProject() {
+        if (!selectedProjectId || !currentUser) {
+            return;
+        }
+        const isOnlyProjectMember =
+            selectedProject?.users.length === 1 &&
+            selectedProject.users.some((member) => member.id === currentUser.id);
+        if (isOnlyProjectMember) {
+            setModal("deleteProject");
+            return;
+        }
+        void leaveProject();
+    }
+
+    async function leaveProject() {
+        if (!selectedProjectId || !currentUser) {
+            return;
+        }
+        try {
+            await api.removeMember(selectedProjectId, currentUser.id);
+            setNotice("Вы вышли из проекта");
+            setModal(null);
+            setSelectedProject(null);
+            setSelectedProjectId(null);
+            setActiveTask(null);
+            setTaskComments([]);
+            setCommentsPage(0);
+            setHasMoreComments(false);
+            setTaskDetailError(null);
+            setCommentText("");
+            setEditingCommentId(null);
+            setEditingCommentText("");
+            setTaskDetailsMode("view");
+            setIsCreatingTask(false);
+            setReport(null);
+            setReportProjectId(null);
+            setPendingReport(null);
+            setPendingReportProjectId(null);
+            reportLoadRequestId.current += 1;
+            setView("dashboard");
+            await bootstrap(null);
         } catch (error) {
             setNotice(errorMessage(error));
         }
@@ -1047,9 +1382,9 @@ export default function App() {
     async function loadFirstCommentsPage(taskId: number) {
         const firstPage = await api.comments(taskId, 0, COMMENTS_PAGE_SIZE);
 
-        setTaskComments(firstPage);
-        setCommentsPage(0);
-        setHasMoreComments(firstPage.length === COMMENTS_PAGE_SIZE);
+        setTaskComments(firstPage.content);
+        setCommentsPage(firstPage.number);
+        setHasMoreComments(!firstPage.last);
     }
 
     async function loadMoreComments() {
@@ -1062,9 +1397,9 @@ export default function App() {
             const nextPage = commentsPage + 1;
             const nextComments = await api.comments(activeTask.id, nextPage, COMMENTS_PAGE_SIZE);
 
-            setTaskComments((currentComments) => [...currentComments, ...nextComments]);
-            setCommentsPage(nextPage);
-            setHasMoreComments(nextComments.length === COMMENTS_PAGE_SIZE);
+            setTaskComments((currentComments) => [...currentComments, ...nextComments.content]);
+            setCommentsPage(nextComments.number);
+            setHasMoreComments(!nextComments.last);
         } catch (error) {
             setTaskDetailError(errorMessage(error));
         } finally {
@@ -1189,30 +1524,60 @@ export default function App() {
         setTaskDetailError(null);
     }
 
-    async function generateReport() {
-        if (!selectedProjectId) {
+    async function generateReport(projectId: number | null = selectedProjectId) {
+        if (!projectId) {
             return;
         }
+        const requestId = reportLoadRequestId.current + 1;
+        reportLoadRequestId.current = requestId;
+        setPendingReportProjectId(projectId);
+        setPendingReport(null);
         try {
-            const submission = await api.startReport(selectedProjectId);
-            setReport({
+            const submission = await api.startReport(projectId);
+            if (reportLoadRequestId.current !== requestId) {
+                return;
+            }
+            const submittedReport = {
                 ...submission,
                 startedAt: null,
                 completedAt: null,
                 errorMessage: null,
                 result: null
-            });
-            await refreshReport(submission.asyncTaskId);
+            };
+            setPendingReport(submittedReport);
+            await refreshReport(submission.asyncTaskId, projectId, requestId);
         } catch (error) {
-            setNotice(errorMessage(error));
+            if (reportLoadRequestId.current === requestId) {
+                setPendingReport(null);
+                setPendingReportProjectId(null);
+                setNotice(errorMessage(error));
+            }
         }
     }
 
-    async function refreshReport(asyncTaskId: string) {
+    async function refreshReport(
+        asyncTaskId: string,
+        projectId: number | null = pendingReportProjectId,
+        requestId = reportLoadRequestId.current
+    ) {
         try {
-            setReport(await api.reportStatus(asyncTaskId));
+            const nextReport = await api.reportStatus(asyncTaskId) as AsyncTaskStatusResponse<ProjectSummaryReportResponse>;
+            if (reportLoadRequestId.current !== requestId || projectId !== pendingReportProjectId) {
+                return;
+            }
+            setPendingReport(nextReport);
+            if (nextReport.status === "COMPLETED" || nextReport.status === "FAILED") {
+                setReport(nextReport);
+                setReportProjectId(projectId);
+                setPendingReport(null);
+                setPendingReportProjectId(null);
+            }
         } catch (error) {
-            setNotice(errorMessage(error));
+            if (reportLoadRequestId.current === requestId) {
+                setPendingReport(null);
+                setPendingReportProjectId(null);
+                setNotice(errorMessage(error));
+            }
         }
     }
 
@@ -1275,6 +1640,7 @@ export default function App() {
                 <Topbar
                     text={text}
                     currentUser={currentUser}
+                    isRefreshing={busy}
                     onCreateProject={openCreateProjectModal}
                     onOpenProfile={() => setView("profile")}
                 />
@@ -1291,135 +1657,142 @@ export default function App() {
                             </button>
                         </div>
                     )}
-                    {busy ? (
-                        <LoadingState text={text} />
-                    ) : (
-                        <>
-                            {view === "dashboard" && (
-                                <DashboardView
-                                    text={text}
-                                    currentUser={currentUser}
-                                    dashboard={dashboard}
-                                    projects={projects}
-                                    onSelectProject={(id) => {
-                                        void loadProject(id);
-                                        setView("board");
-                                    }}
-                                    onCreateProject={openCreateProjectModal}
-                                    onOpenBoard={() => setView("board")}
-                                    onOpenTask={(taskId) => void openTask(taskId)}
-                                />
-                            )}
-                            {view === "board" && (
-                                <BoardView
-                                    text={text}
-                                    priorityLabels={priorityLabels}
-                                    projects={projects}
-                                    selectedProject={selectedProject}
-                                    selectedProjectId={selectedProjectId}
-                                    currentUser={currentUser}
-                                    loading={loadingProject}
-                                    canEdit={canEditSelectedProject}
-                                    canDeleteProject={currentRole === "OWNER"}
-                                    currentRole={currentRole}
-                                    roleLabels={roleLabels}
-                                    statusLabels={statusLabels}
-                                    canChangeTaskStatus={canChangeTaskStatus}
-                                    onSelectProject={(id) => void loadProject(id)}
-                                    onEditProject={openEditProjectModal}
-                                    onDeleteProject={() => setModal("deleteProject")}
-                                    onCreateTask={() => void openCreateTaskDetails()}
-                                    onMoveTask={(task, status) => void moveTask(task, status)}
-                                    onOpenTask={(taskId) => void openTask(taskId)}
-                                />
-                            )}
-                            {view === "reports" && (
-                                <ReportsView
-                                    text={text}
-                                    projects={projects}
-                                    selectedProject={selectedProject}
-                                    selectedProjectId={selectedProjectId}
-                                    report={report}
-                                    statusLabels={statusLabels}
-                                    onSelectProject={(id) => void loadProject(id)}
-                                    onGenerateReport={() => void generateReport()}
-                                />
-                            )}
-                            {view === "team" && (
-                                <TeamView
-                                    text={text}
-                                    projects={projects}
-                                    roleLabels={roleLabels}
-                                    selectedProject={selectedProject}
-                                    selectedProjectId={selectedProjectId}
-                                    currentUser={currentUser}
-                                    currentRole={currentRole}
-                                    canManageMembers={canManageSelectedMembers}
-                                    canEditMembers={canEditSelectedMembers}
-                                    onSelectProject={(id) => void loadProject(id)}
-                                    onAddMember={() => setModal("member")}
-                                    onUpdateRole={(userId, role) => void updateMemberRole(userId, role)}
-                                    onRemoveMember={(userId) => void removeMember(userId)}
-                                />
-                            )}
-                            {view === "profile" && currentUser && (
+                    <>
+                        {view === "dashboard" && (
+                            <DashboardView
+                                text={text}
+                                currentUser={currentUser}
+                                dashboard={dashboard}
+                                projectsPage={projectsPage}
+                                loadingProjectsPage={loadingProjectsPage}
+                                onChangeProjectsPage={(page) => void loadProjectsPage(page)}
+                                onSelectProject={(id) => {
+                                    void loadProject(id);
+                                    setView("board");
+                                }}
+                                onCreateProject={openCreateProjectModal}
+                                onOpenBoard={() => setView("board")}
+                                onOpenTask={(taskId) => void openTask(taskId)}
+                            />
+                        )}
+                        {view === "board" && (
+                            <BoardView
+                                text={text}
+                                priorityLabels={priorityLabels}
+                                projects={projects}
+                                selectedProject={selectedProject}
+                                selectedProjectId={selectedProjectId}
+                                currentUser={currentUser}
+                                loading={loadingProject || (busy && view === "board" && !selectedProject)}
+                                canEdit={canEditSelectedProject}
+                                canDeleteProject={currentRole === "OWNER"}
+                                currentRole={currentRole}
+                                roleLabels={roleLabels}
+                                statusLabels={statusLabels}
+                                canChangeTaskStatus={canChangeTaskStatus}
+                                onSelectProject={(id) => void loadProject(id)}
+                                onEditProject={openEditProjectModal}
+                                onDeleteProject={() => setModal("deleteProject")}
+                                onCreateTask={() => void openCreateTaskDetails()}
+                                onMoveTask={(task, status) => void moveTask(task, status)}
+                                onOpenTask={(taskId) => void openTask(taskId)}
+                            />
+                        )}
+                        {view === "reports" && (
+                            <ReportsView
+                                text={text}
+                                projects={projects}
+                                selectedProject={selectedProject}
+                                selectedProjectId={selectedProjectId}
+                                report={report}
+                                reportProjectId={reportProjectId}
+                                pendingReport={pendingReport}
+                                pendingReportProjectId={pendingReportProjectId}
+                                statusLabels={statusLabels}
+                                onSelectProject={(id) => void loadProject(id)}
+                            />
+                        )}
+                        {view === "team" && (
+                            <TeamView
+                                text={text}
+                                projects={projects}
+                                roleLabels={roleLabels}
+                                selectedProject={selectedProject}
+                                selectedProjectId={selectedProjectId}
+                                currentUser={currentUser}
+                                currentRole={currentRole}
+                                canManageMembers={canManageSelectedMembers}
+                                canEditMembers={canEditSelectedMembers}
+                                onSelectProject={(id) => void loadProject(id)}
+                                onAddMember={() => setModal("member")}
+                                onUpdateRole={(userId, role) => void updateMemberRole(userId, role)}
+                                onRemoveMember={(userId) => void removeMember(userId)}
+                                onLeaveProject={requestLeaveProject}
+                            />
+                        )}
+                        {view === "profile" && (
+                            currentUser ? (
                                 <ProfileView
                                     text={text}
                                     currentUser={currentUser}
                                     dashboard={dashboard}
                                     onEditProfile={openProfileEditor}
                                 />
-                            )}
-                            {view === "taskDetails" && activeTask && (
-                                <TaskDetailsView
-                                    text={text}
-                                    mode={taskDetailsMode}
-                                    isCreatingTask={isCreatingTask}
-                                    activeTask={activeTask}
-                                    selectedProject={selectedProject}
-                                    currentUser={currentUser}
-                                    canEditTask={canEditActiveTask}
-                                    canChangeStatus={canChangeActiveTaskStatus}
-                                    canEditComments={canEditSelectedMembers}
-                                    statusLabels={statusLabels}
-                                    priorityLabels={priorityLabels}
-                                    projectMembers={projectMembers}
-                                    tags={tags}
-                                    taskComments={taskComments}
-                                    commentsPage={commentsPage}
-                                    hasMoreComments={hasMoreComments}
-                                    loadingMoreComments={loadingMoreComments}
-                                    commentText={commentText}
-                                    editingCommentId={editingCommentId}
-                                    editingCommentText={editingCommentText}
-                                    taskEditForm={taskEditForm}
-                                    taskEditTags={taskEditTags}
-                                    taskDetailError={taskDetailError}
-                                    tagSelect={tagSelect}
-                                    newTagName={newTagName}
-                                    onBack={() => setView(taskDetailsBackView === "taskDetails" ? "board" : taskDetailsBackView)}
-                                    onStartEdit={startTaskEdit}
-                                    onCancelEdit={cancelTaskEdit}
-                                    onSaveEdit={() => void saveActiveTaskEdit()}
-                                    onDeleteTask={(taskId) => void removeTask(taskId)}
-                                    onStatusChange={(status) => void changeActiveTaskStatus(status)}
-                                    onEditFormChange={(patch) => setTaskEditForm((form) => ({ ...form, ...patch }))}
-                                    onTagSelectChange={setTagSelect}
-                                    onNewTagNameChange={setNewTagName}
-                                    onAssignTag={() => void assignTagToActiveTask()}
-                                    onRemoveTag={(tagId) => void removeTagFromActiveTask(tagId)}
-                                    onCommentTextChange={setCommentText}
-                                    onSubmitComment={(event) => void submitComment(event)}
-                                    onStartCommentEdit={startCommentEdit}
-                                    onCancelCommentEdit={cancelCommentEdit}
-                                    onEditingCommentTextChange={setEditingCommentText}
-                                    onSaveCommentEdit={() => void saveCommentEdit()}
-                                    onRemoveComment={(commentId) => void removeComment(commentId)}
-                                    onLoadMoreComments={() => void loadMoreComments()}
+                            ) : (
+                                <SoftReloadState
+                                    title="Мой профиль"
+                                    subtitle="Данные аккаунта загружаются."
                                 />
-                            )}
-                        </>
-                    )}
+                            )
+                        )}
+                        {view === "taskDetails" && activeTask && (
+                            <TaskDetailsView
+                                text={text}
+                                mode={taskDetailsMode}
+                                isCreatingTask={isCreatingTask}
+                                activeTask={activeTask}
+                                selectedProject={selectedProject}
+                                currentUser={currentUser}
+                                canEditTask={canEditActiveTask}
+                                canChangeStatus={canChangeActiveTaskStatus}
+                                statusLabels={statusLabels}
+                                priorityLabels={priorityLabels}
+                                projectMembers={projectMembers}
+                                tags={tags}
+                                taskComments={taskComments}
+                                commentsPage={commentsPage}
+                                hasMoreComments={hasMoreComments}
+                                loadingMoreComments={loadingMoreComments}
+                                commentText={commentText}
+                                editingCommentId={editingCommentId}
+                                editingCommentText={editingCommentText}
+                                taskEditForm={taskEditForm}
+                                taskEditTags={taskEditTags}
+                                taskDetailError={taskDetailError}
+                                tagSelect={tagSelect}
+                                newTagName={newTagName}
+                                onBack={() => setView(taskDetailsBackView === "taskDetails" ? "board" : taskDetailsBackView)}
+                                onStartEdit={startTaskEdit}
+                                onCancelEdit={cancelTaskEdit}
+                                onSaveEdit={() => void saveActiveTaskEdit()}
+                                onDeleteTask={(taskId) => void removeTask(taskId)}
+                                onStatusChange={(status) => void changeActiveTaskStatus(status)}
+                                onEditFormChange={(patch) => setTaskEditForm((form) => ({ ...form, ...patch }))}
+                                onTagSelectChange={setTagSelect}
+                                onNewTagNameChange={setNewTagName}
+                                onAssignTag={() => void assignTagToActiveTask()}
+                                onRemoveTag={(tagId) => void removeTagFromActiveTask(tagId)}
+                                onCommentTextChange={setCommentText}
+                                onSubmitComment={(event) => void submitComment(event)}
+                                onStartCommentEdit={startCommentEdit}
+                                onCancelCommentEdit={cancelCommentEdit}
+                                onEditingCommentTextChange={setEditingCommentText}
+                                onSaveCommentEdit={() => void saveCommentEdit()}
+                                onRemoveComment={(commentId) => void removeComment(commentId)}
+                                onLoadMoreComments={() => void loadMoreComments()}
+                            />
+                        )}
+                    </>
                 </main>
             </div>
             {modal === "project" && (
@@ -1567,11 +1940,10 @@ export default function App() {
                         </div>
                         <label>
                             <span>{text.forms.dueDate}</span>
-                            <input
-                                type="datetime-local"
+                            <DateTime24Input
                                 value={taskForm.dueDate}
-                                onChange={(event) =>
-                                    setTaskForm((form) => ({ ...form, dueDate: event.target.value }))
+                                onChange={(value) =>
+                                    setTaskForm((form) => ({ ...form, dueDate: value }))
                                 }
                             />
                         </label>
@@ -1926,7 +2298,7 @@ function Sidebar({
                             onClick={() => onChangeView(item.view)}
                         >
                             <Icon size={19} />
-                            {item.label}
+                            <span>{item.label}</span>
                         </button>
                     );
                 })}
@@ -1944,18 +2316,24 @@ function Sidebar({
 function Topbar({
                     text,
                     currentUser,
+                    isRefreshing,
                     onCreateProject,
                     onOpenProfile
                 }: {
     text: Text;
     currentUser: UserResponse | null;
+    isRefreshing: boolean;
     onCreateProject: () => void;
     onOpenProfile: () => void;
 }) {
     return (
-        <header className="topbar">
-            <div>
-                <h1>{text.appTitle}</h1>
+        <header className="topbar topbar-actions-only">
+            <div className="topbar-status-area" aria-live="polite">
+                {isRefreshing && (
+                    <span className="topbar-refresh-dot" title="Обновляем рабочую область">
+                        <Loader2 className="spin" size={15} />
+                    </span>
+                )}
             </div>
             <button className="secondary-button top-action" onClick={onCreateProject}>
                 <Plus size={15} />
@@ -1972,7 +2350,9 @@ function DashboardView({
                            text,
                            currentUser,
                            dashboard,
-                           projects,
+                           projectsPage,
+                           loadingProjectsPage,
+                           onChangeProjectsPage,
                            onSelectProject,
                            onCreateProject,
                            onOpenBoard,
@@ -1981,12 +2361,19 @@ function DashboardView({
     text: Text;
     currentUser: UserResponse | null;
     dashboard: DashboardResponse | null;
-    projects: ProjectResponse[];
+    projectsPage: ApiPage<ProjectResponse> | null;
+    loadingProjectsPage: boolean;
+    onChangeProjectsPage: (page: number) => void;
     onSelectProject: (projectId: number) => void;
     onCreateProject: () => void;
     onOpenBoard: () => void;
     onOpenTask: (taskId: number) => void;
 }) {
+    const projectRows = projectsPage?.content ?? [];
+    const currentProjectPage = projectsPage?.number ?? 0;
+    const totalProjectPages = projectsPage?.totalPages ?? 0;
+    const hasProjectPages = totalProjectPages > 1;
+
     return (
         <div className="view-stack">
             <section className="hero-slab">
@@ -2031,8 +2418,8 @@ function DashboardView({
                 <div>
                     <SectionHeader title={text.dashboard.recentProjects} subtitle={text.dashboard.recentSubtitle} />
                     <div className="list-stack">
-                        {projects.length ? (
-                            projects.slice(0, 6).map((project) => (
+                        {projectRows.length ? (
+                            projectRows.map((project) => (
                                 <button
                                     key={project.id}
                                     className="project-row"
@@ -2049,6 +2436,31 @@ function DashboardView({
                             <EmptyState title={text.dashboard.emptyProjects} />
                         )}
                     </div>
+                    {hasProjectPages && (
+                        <div className="dashboard-pagination">
+                            <button
+                                className="secondary-button dashboard-page-button"
+                                type="button"
+                                onClick={() => onChangeProjectsPage(currentProjectPage - 1)}
+                                disabled={currentProjectPage <= 0 || loadingProjectsPage}
+                            >
+                                <ChevronLeft size={16} />
+                                {"Назад"}
+                            </button>
+                            <span className="dashboard-page-label">
+                                {`Страница ${currentProjectPage + 1} из ${totalProjectPages}`}
+                            </span>
+                            <button
+                                className="secondary-button dashboard-page-button"
+                                type="button"
+                                onClick={() => onChangeProjectsPage(currentProjectPage + 1)}
+                                disabled={(projectsPage?.last ?? true) || loadingProjectsPage}
+                            >
+                                {"Вперёд"}
+                                <ChevronRight size={16} />
+                            </button>
+                        </div>
+                    )}
                 </div>
                 <div>
                     <SectionHeader title={text.dashboard.upcomingTasks} subtitle={text.dashboard.upcomingSubtitle} />
@@ -2127,6 +2539,7 @@ function BoardView({
 }) {
     const [draggingTaskId, setDraggingTaskId] = useState<number | null>(null);
     const [dragOverStatus, setDragOverStatus] = useState<TaskStatus | null>(null);
+    const [filtersOpen, setFiltersOpen] = useState(false);
     const [filters, setFilters] = useState({
         query: "",
         status: "ALL" as TaskStatus | "ALL",
@@ -2145,6 +2558,7 @@ function BoardView({
             tagId: "ALL",
             overdueOnly: false
         });
+        setFiltersOpen(false);
     }, [selectedProjectId]);
 
     function dropTask(status: TaskStatus) {
@@ -2182,9 +2596,6 @@ function BoardView({
         }
         const query = filters.query.trim().toLowerCase();
         return selectedProject.tasks.filter((task) => {
-            if (filters.status !== "ALL" && task.status !== filters.status) {
-                return false;
-            }
             if (filters.priority !== "ALL" && task.priority !== filters.priority) {
                 return false;
             }
@@ -2220,170 +2631,213 @@ function BoardView({
 
     const hasActiveFilters =
         filters.query !== "" ||
-        filters.status !== "ALL" ||
         filters.priority !== "ALL" ||
         filters.assigneeId !== "ALL" ||
         filters.tagId !== "ALL" ||
         filters.overdueOnly;
+    const activeFilterCount = [
+        filters.query !== "",
+        filters.priority !== "ALL",
+        filters.assigneeId !== "ALL",
+        filters.tagId !== "ALL",
+        filters.overdueOnly
+    ].filter(Boolean).length;
+    const selectedProjectSummary = projects.find((project) => project.id === selectedProjectId) ?? null;
+    const headerProjectName = selectedProjectSummary?.name ?? selectedProject?.name ?? text.board.empty;
+    const headerProjectDescription =
+        selectedProjectSummary?.description || selectedProject?.description || text.board.fallbackSubtitle;
+    const isProjectTransitioning = Boolean(loading && selectedProjectId !== selectedProject?.id);
 
     return (
         <div className="view-stack">
-            <Toolbar
-                title={text.board.title}
-                subtitle={selectedProject?.description ?? text.board.fallbackSubtitle}
-                selectValue={selectedProjectId ?? ""}
-                projects={projects}
-                text={text}
-                onSelectProject={onSelectProject}
-                meta={
-                    selectedProject && currentRole ? (
-                        <div className={`project-role-badge role-${currentRole.toLowerCase()}`}>
-                            {roleLabels[currentRole]}
-                        </div>
-                    ) : null
-                }
-                action={
-                    <div className="board-toolbar-actions">
-                        <div className="project-management-actions">
-                            {selectedProject && canEdit && (
-                                <button className="secondary-button" onClick={onEditProject}>
-                                    <Edit3 size={16} />
-                                    {"Изменить проект"}
-                                </button>
-                            )}
-                            {selectedProject && canDeleteProject && (
-                                <button className="danger-button" onClick={onDeleteProject}>
-                                    <Trash2 size={16} />
-                                    {"Удалить проект"}
-                                </button>
-                            )}
-                        </div>
-                        <button className="primary-button" onClick={onCreateTask} disabled={!canEdit}>
-                            <Plus size={16} />
-                            {text.actions.newTask}
-                        </button>
+            <section className="toolbar board-toolbar">
+                <div className="board-toolbar-main">
+                    <div className="board-toolbar-title">
+                        <p className="eyebrow">{text.board.title}</p>
+                        <h2>{headerProjectName}</h2>
+                        <p className="board-toolbar-description">
+                            {headerProjectDescription}
+                        </p>
                     </div>
-                }
-            />
-            {loading ? (
-                <LoadingState text={text} />
-            ) : selectedProject ? (
-                <>
-                    <section className="board-filter-panel">
-                        <div className="board-filter-grid">
-                            <label className="detail-control board-filter-span-two">
-                                <span>{"Поиск"}</span>
-                                <input
-                                    value={filters.query}
-                                    onChange={(event) =>
-                                        setFilters((current) => ({ ...current, query: event.target.value }))
-                                    }
-                                    placeholder={
-                                        "Название, исполнитель или тег"
-                                    }
-                                />
-                            </label>
-                            <label className="detail-control">
-                                <span>{"Статус"}</span>
-                                <select
-                                    value={filters.status}
-                                    onChange={(event) =>
-                                        setFilters((current) => ({
-                                            ...current,
-                                            status: event.target.value as TaskStatus | "ALL"
-                                        }))
-                                    }
-                                >
-                                    <option value="ALL">{"Все статусы"}</option>
-                                    {STATUSES.map((status) => (
-                                        <option key={status} value={status}>
-                                            {statusLabels[status]}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="detail-control">
-                                <span>{"Приоритет"}</span>
-                                <select
-                                    value={filters.priority}
-                                    onChange={(event) =>
-                                        setFilters((current) => ({
-                                            ...current,
-                                            priority: event.target.value as Priority | "ALL"
-                                        }))
-                                    }
-                                >
-                                    <option value="ALL">{"Все приоритеты"}</option>
-                                    {PRIORITIES.map((priority) => (
-                                        <option key={priority} value={priority}>
-                                            {priorityLabels[priority]}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="detail-control">
-                                <span>{text.forms.assignee}</span>
-                                <select
-                                    value={filters.assigneeId}
-                                    onChange={(event) =>
-                                        setFilters((current) => ({ ...current, assigneeId: event.target.value }))
-                                    }
-                                >
-                                    <option value="ALL">{"Все исполнители"}</option>
-                                    <option value="unassigned">{text.common.unassigned}</option>
-                                    {selectedProject.users.map((member) => (
-                                        <option key={member.id} value={member.id}>
-                                            {member.username}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="detail-control">
-                                <span>{"Тег"}</span>
-                                <select
-                                    value={filters.tagId}
-                                    onChange={(event) =>
-                                        setFilters((current) => ({ ...current, tagId: event.target.value }))
-                                    }
-                                >
-                                    <option value="ALL">{"Все теги"}</option>
-                                    {availableTagOptions.map((tag) => (
-                                        <option key={tag.id} value={tag.id}>
-                                            {tag.name}
-                                        </option>
-                                    ))}
-                                </select>
-                            </label>
-                            <label className="checkbox-line board-filter-toggle">
-                                <input
-                                    type="checkbox"
-                                    checked={filters.overdueOnly}
-                                    onChange={(event) =>
-                                        setFilters((current) => ({ ...current, overdueOnly: event.target.checked }))
-                                    }
-                                />
-                                <span>{"Только просроченные"}</span>
-                            </label>
-                            {hasActiveFilters && (
-                                <button
-                                    className="secondary-button"
-                                    type="button"
-                                    onClick={() =>
-                                        setFilters({
-                                            query: "",
-                                            status: "ALL",
-                                            priority: "ALL",
-                                            assigneeId: "ALL",
-                                            tagId: "ALL",
-                                            overdueOnly: false
-                                        })
-                                    }
-                                >
-                                    {"Сбросить фильтры"}
-                                </button>
-                            )}
+                    <div className="board-toolbar-project">
+                        <span className="board-project-switcher-label">Переключить проект</span>
+                        <div className="board-toolbar-project-row">
+                            <div className="detail-control board-project-select">
+                                <div className="select-shell board-project-select-shell">
+                                    <select
+                                        aria-label={text.forms.projectSelect}
+                                        value={selectedProjectId ?? ""}
+                                        onChange={(event) => onSelectProject(Number(event.target.value))}
+                                    >
+                                        {!projects.length && <option value="">{text.forms.chooseProject}</option>}
+                                        {projects.map((project) => (
+                                            <option key={project.id} value={project.id}>
+                                                {project.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <ChevronDown size={15} />
+                                </div>
+                            </div>
+                            {selectedProject && (currentRole || isProjectTransitioning) ? (
+                                <div className="board-toolbar-project-meta">
+                                    <div
+                                        className={
+                                            isProjectTransitioning || !currentRole
+                                                ? "project-role-badge role-member"
+                                                : `project-role-badge role-${currentRole.toLowerCase()}`
+                                        }
+                                    >
+                                        {isProjectTransitioning || !currentRole ? "Загрузка..." : roleLabels[currentRole]}
+                                    </div>
+                                </div>
+                            ) : null}
                         </div>
-                    </section>
+                    </div>
+                </div>
+                <div className="board-toolbar-actions">
+                    <button
+                        className="secondary-button board-action-button"
+                        onClick={onEditProject}
+                        type="button"
+                        disabled={!selectedProject || !canEdit}
+                    >
+                        <Edit3 size={16} />
+                        {"Изменить проект"}
+                    </button>
+                    <button
+                        className="danger-button board-action-button"
+                        onClick={onDeleteProject}
+                        type="button"
+                        disabled={!selectedProject || !canDeleteProject}
+                    >
+                        <Trash2 size={16} />
+                        {"Удалить проект"}
+                    </button>
+                    <button
+                        className="secondary-button board-action-button"
+                        type="button"
+                        onClick={() => setFiltersOpen((current) => !current)}
+                        disabled={!selectedProject}
+                    >
+                        <SlidersHorizontal size={16} />
+                        {filtersOpen ? "Скрыть фильтры" : "Фильтры"}
+                        {activeFilterCount > 0 && (
+                            <span className="filter-count">{activeFilterCount}</span>
+                        )}
+                    </button>
+                    <button className="primary-button board-action-button" onClick={onCreateTask} disabled={!canEdit}>
+                        <Plus size={16} />
+                        {text.actions.newTask}
+                    </button>
+                </div>
+            </section>
+            {selectedProject ? (
+                <div className={`board-project-content ${loading ? "is-loading" : ""}`}>
+                    {loading && (
+                        <div className="board-transition-indicator" aria-live="polite">
+                            <Loader2 className="spin" size={15} />
+                            <span>Обновляем проект...</span>
+                        </div>
+                    )}
+                    {filtersOpen && (
+                        <section className="board-filter-panel board-filter-popover">
+                            <div className="board-filter-grid">
+                                <label className="detail-control board-filter-span-two">
+                                    <span>{"Поиск"}</span>
+                                    <input
+                                        value={filters.query}
+                                        onChange={(event) =>
+                                            setFilters((current) => ({ ...current, query: event.target.value }))
+                                        }
+                                        placeholder={"Название, исполнитель или тег"}
+                                    />
+                                </label>
+                                <label className="detail-control">
+                                    <span>{"Приоритет"}</span>
+                                    <select
+                                        value={filters.priority}
+                                        onChange={(event) =>
+                                            setFilters((current) => ({
+                                                ...current,
+                                                priority: event.target.value as Priority | "ALL"
+                                            }))
+                                        }
+                                    >
+                                        <option value="ALL">{"Все приоритеты"}</option>
+                                        {PRIORITIES.map((priority) => (
+                                            <option key={priority} value={priority}>
+                                                {priorityLabels[priority]}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label className="detail-control">
+                                    <span>{text.forms.assignee}</span>
+                                    <select
+                                        value={filters.assigneeId}
+                                        onChange={(event) =>
+                                            setFilters((current) => ({ ...current, assigneeId: event.target.value }))
+                                        }
+                                    >
+                                        <option value="ALL">{"Все исполнители"}</option>
+                                        <option value="unassigned">{text.common.unassigned}</option>
+                                        {selectedProject.users.map((member) => (
+                                            <option key={member.id} value={member.id}>
+                                                {member.username}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                                <label className="detail-control">
+                                    <span>{"Тег"}</span>
+                                    <select
+                                        value={filters.tagId}
+                                        onChange={(event) =>
+                                            setFilters((current) => ({ ...current, tagId: event.target.value }))
+                                        }
+                                    >
+                                        <option value="ALL">{"Все теги"}</option>
+                                        {availableTagOptions.map((tag) => (
+                                            <option key={tag.id} value={tag.id}>
+                                                {tag.name}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </label>
+                            </div>
+                            <div className="board-filter-actions">
+                                <label className="checkbox-line board-filter-toggle">
+                                    <input
+                                        type="checkbox"
+                                        checked={filters.overdueOnly}
+                                        onChange={(event) =>
+                                            setFilters((current) => ({ ...current, overdueOnly: event.target.checked }))
+                                        }
+                                    />
+                                    <span>{"Только просроченные"}</span>
+                                </label>
+                                {hasActiveFilters && (
+                                    <button
+                                        className="secondary-button board-filter-reset"
+                                        type="button"
+                                        onClick={() =>
+                                            setFilters({
+                                                query: "",
+                                                status: "ALL",
+                                                priority: "ALL",
+                                                assigneeId: "ALL",
+                                                tagId: "ALL",
+                                                overdueOnly: false
+                                            })
+                                        }
+                                    >
+                                        {"Сбросить фильтры"}
+                                    </button>
+                                )}
+                            </div>
+                        </section>
+                    )}
 
                     {filteredTasks.length ? (
                         <section className="kanban">
@@ -2444,7 +2898,7 @@ function BoardView({
                               <span className={`priority-chip priority-${task.priority.toLowerCase()}`}>
                                 {priorityLabels[task.priority]}
                               </span>
-                    <span>{formatDate(task.dueDate)}</span>
+                                                            <span>{formatDate(task.dueDate)}</span>
                                                         </div>
                                                         <h3 title={task.title}>{task.title}</h3>
                                                         {(isAssignedToCurrentUser || isCreatedByCurrentUser) && (
@@ -2500,7 +2954,9 @@ function BoardView({
                             }
                         />
                     )}
-                </>
+                </div>
+            ) : loading ? (
+                <LoadingState text={text} />
             ) : (
                 <EmptyState title={text.board.empty} />
             )}
@@ -2514,27 +2970,46 @@ function ReportsView({
                          selectedProject,
                          selectedProjectId,
                          report,
+                         reportProjectId,
+                         pendingReport,
+                         pendingReportProjectId,
                          statusLabels,
-                         onSelectProject,
-                         onGenerateReport
+                         onSelectProject
                      }: {
     text: Text;
     projects: ProjectResponse[];
     selectedProject: ProjectDetailsResponse | null;
     selectedProjectId: number | null;
     report: AsyncTaskStatusResponse<ProjectSummaryReportResponse> | null;
+    reportProjectId: number | null;
+    pendingReport: AsyncTaskStatusResponse<ProjectSummaryReportResponse> | null;
+    pendingReportProjectId: number | null;
     statusLabels: Record<TaskStatus, string>;
     onSelectProject: (projectId: number) => void;
-    onGenerateReport: () => void;
 }) {
     const result = report?.result;
-    const reportInProgress = Boolean(report && report.status !== "COMPLETED" && report.status !== "FAILED");
-    const reportFailed = report?.status === "FAILED";
+    const selectedProjectSummary = projects.find((project) => project.id === selectedProjectId) ?? null;
+    const pendingForSelectedProject = Boolean(selectedProjectId && pendingReportProjectId === selectedProjectId);
+    const pendingStatus = pendingForSelectedProject ? pendingReport?.status ?? "SUBMITTED" : null;
+    const reportInProgress = Boolean(
+        pendingForSelectedProject && pendingStatus !== "COMPLETED" && pendingStatus !== "FAILED"
+    );
+    const reportFailed = Boolean(
+        pendingForSelectedProject && pendingReport?.status === "FAILED"
+    ) || (!pendingForSelectedProject && report?.status === "FAILED");
+    const reportIsStaleForSelection = Boolean(result && selectedProjectId && reportProjectId !== selectedProjectId);
+    const reportIsTransitioning = reportInProgress || reportIsStaleForSelection;
     const reportPlaceholder = reportInProgress
         ? "Отчет формируется..."
         : reportFailed
-            ? report.errorMessage || "Не удалось сформировать отчет"
+            ? pendingReport?.errorMessage || report?.errorMessage || "Не удалось сформировать отчет"
             : text.reports.generateHint;
+    const reportTitle = reportIsTransitioning
+        ? selectedProjectSummary?.name ?? selectedProject?.name ?? result?.projectName ?? text.reports.projectSummary
+        : result?.projectName ?? selectedProject?.name ?? text.reports.projectSummary;
+    const reportStatusLabel = pendingForSelectedProject
+        ? pendingStatus
+        : report?.status;
     const totalTasks = result?.tasksCount ?? 0;
     const completedTasks = result?.completedTasksCount ?? 0;
     const overdueTasks = result?.overdueTasksCount ?? 0;
@@ -2553,16 +3028,7 @@ function ReportsView({
                 projects={projects}
                 text={text}
                 onSelectProject={onSelectProject}
-                action={
-                    <button className="primary-button" onClick={onGenerateReport} disabled={!selectedProject}>
-                        {report && report.status !== "COMPLETED" && report.status !== "FAILED" ? (
-                            <Loader2 className="spin" size={16} />
-                        ) : (
-                            <BarChart3 size={16} />
-                        )}
-                        {text.actions.newReport}
-                    </button>
-                }
+                action={null}
             />
             <section className="stat-grid three">
                 <StatCard
@@ -2585,15 +3051,21 @@ function ReportsView({
                 />
             </section>
             <section className="reports-grid">
-                <div className="surface-panel analytics-panel reports-main-panel">
+                <div className={`surface-panel analytics-panel reports-main-panel ${reportIsTransitioning ? "report-transitioning" : ""}`}>
                     <SectionHeader
-                        title={result?.projectName ?? selectedProject?.name ?? text.reports.projectSummary}
+                        title={reportTitle}
                         subtitle={
-                            report
-                                ? `${text.common.asyncStatus}: ${report.status}`
+                            reportStatusLabel
+                                ? `${text.common.asyncStatus}: ${reportStatusLabel}`
                                 : text.reports.generateHint
                         }
                     />
+                    {reportIsTransitioning && (
+                        <div className="report-transition-banner">
+                            <Loader2 className="spin" size={16} />
+                            <span>{reportPlaceholder}</span>
+                        </div>
+                    )}
                     {result ? (
                         <>
                             <div className="report-bars">
@@ -2659,7 +3131,6 @@ function TaskDetailsView({
                              currentUser,
                              canEditTask,
                              canChangeStatus,
-                             canEditComments,
                              statusLabels,
                              priorityLabels,
                              projectMembers,
@@ -2704,7 +3175,6 @@ function TaskDetailsView({
     currentUser: UserResponse | null;
     canEditTask: boolean;
     canChangeStatus: boolean;
-    canEditComments: boolean;
     statusLabels: Record<TaskStatus, string>;
     priorityLabels: Record<Priority, string>;
     projectMembers: ProjectDetailsResponse["users"];
@@ -2801,31 +3271,20 @@ function TaskDetailsView({
                         </div>
                     )}
                 </div>
-                <div className="task-details-actions">
-                    {mode === "view" ? (
-                        <>
-                            <button className="secondary-button" type="button" onClick={onBack}>
-                                <ChevronDown className="rotate-left" size={16} />
-                                {"Назад к доске"}
+                {mode === "view" && (
+                    <div className="task-details-actions">
+                        <button className="secondary-button" type="button" onClick={onBack}>
+                            <ChevronDown className="rotate-left" size={16} />
+                            {"Назад к доске"}
+                        </button>
+                        {canEditTask && (
+                            <button className="primary-button" type="button" onClick={onStartEdit}>
+                                <Edit3 size={16} />
+                                {"Редактировать задачу"}
                             </button>
-                            {canEditTask && (
-                                <button className="primary-button" type="button" onClick={onStartEdit}>
-                                    <Edit3 size={16} />
-                                    {"Редактировать задачу"}
-                                </button>
-                            )}
-                        </>
-                    ) : (
-                        <>
-                            <button className="secondary-button" type="button" onClick={onCancelEdit}>
-                                {text.actions.cancel}
-                            </button>
-                            <button className="primary-button" type="button" onClick={onSaveEdit}>
-                                {isCreatingTask ? "Создать" : "Сохранить"}
-                            </button>
-                        </>
-                    )}
-                </div>
+                        )}
+                    </div>
+                )}
             </header>
 
             <div className="task-details-layout">
@@ -2897,7 +3356,7 @@ function TaskDetailsView({
                                                         <p>{comment.text}</p>
                                                     )}
                                                 </div>
-                                                {(comment.authorId === currentUser?.id || canEditComments) && (
+                                                {comment.authorId === currentUser?.id && (
                                                     <div className="task-comment-actions">
                                                         {editingCommentId !== comment.id && (
                                                             <button
@@ -2913,7 +3372,7 @@ function TaskDetailsView({
                                                             className="icon-button"
                                                             type="button"
                                                             onClick={() => onRemoveComment(comment.id)}
-                                                            aria-label={text.actions.deleteTask}
+                                                            aria-label={"Удалить комментарий"}
                                                         >
                                                             <Trash2 size={15} />
                                                         </button>
@@ -3021,10 +3480,9 @@ function TaskDetailsView({
                                 </label>
                                 <label className="detail-control">
                                     <span>{text.forms.dueDate}</span>
-                                    <input
-                                        type="datetime-local"
+                                    <DateTime24Input
                                         value={taskEditForm.dueDate}
-                                        onChange={(event) => onEditFormChange({ dueDate: event.target.value })}
+                                        onChange={(value) => onEditFormChange({ dueDate: value })}
                                     />
                                 </label>
                                 <section className="task-edit-full task-edit-tags">
@@ -3071,18 +3529,23 @@ function TaskDetailsView({
                                     </div>
                                 </section>
                                 <div className="task-edit-actions task-edit-full">
-                                    <button
-                                        className="primary-button"
-                                        type="button"
-                                        disabled={!taskEditForm.title.trim() || !taskEditForm.description.trim()}
-                                        onClick={onSaveEdit}
-                                    >
-                                        {isCreatingTask ? "Создать задачу" : "Сохранить изменения"}
-                                    </button>
+                                    <div className="task-edit-primary-actions">
+                                        <button
+                                            className="primary-button"
+                                            type="button"
+                                            disabled={!taskEditForm.title.trim() || !taskEditForm.description.trim()}
+                                            onClick={onSaveEdit}
+                                        >
+                                            {isCreatingTask ? text.actions.createTask : text.actions.saveChanges}
+                                        </button>
+                                        <button className="secondary-button" type="button" onClick={onCancelEdit}>
+                                            {text.actions.cancel}
+                                        </button>
+                                    </div>
                                     {!isCreatingTask && (
-                                        <button className="danger-link-button" type="button" onClick={() => onDeleteTask(activeTask.id)}>
+                                        <button className="danger-link-button task-edit-delete-button" type="button" onClick={() => onDeleteTask(activeTask.id)}>
                                             <Trash2 size={15} />
-                                            {"Удалить задачу"}
+                                            {text.actions.deleteTask}
                                         </button>
                                     )}
                                 </div>
@@ -3162,7 +3625,8 @@ function TeamView({
                       onSelectProject,
                       onAddMember,
                       onUpdateRole,
-                      onRemoveMember
+                      onRemoveMember,
+                      onLeaveProject
                   }: {
     text: Text;
     projects: ProjectResponse[];
@@ -3177,9 +3641,30 @@ function TeamView({
     onAddMember: () => void;
     onUpdateRole: (userId: number, role: ProjectRole) => void;
     onRemoveMember: (userId: number) => void;
+    onLeaveProject: () => void;
 }) {
+    const ownerCount = selectedProject?.users.filter((member) => member.role === "OWNER").length ?? 0;
+    const isOnlyProjectMember = Boolean(
+        selectedProject &&
+        currentUser &&
+        selectedProject.users.length === 1 &&
+        selectedProject.users.some((member) => member.id === currentUser.id)
+    );
+    const canLeaveProject = Boolean(
+        selectedProject &&
+        currentUser &&
+        currentRole &&
+        (isOnlyProjectMember || currentRole !== "OWNER" || ownerCount > 1)
+    );
+    const leaveProjectTitle =
+        isOnlyProjectMember
+            ? "В проекте только вы. Вместо выхода можно удалить проект"
+            : currentRole === "OWNER" && ownerCount <= 1
+                ? "Нельзя выйти, пока вы единственный владелец"
+                : "Выйти из проекта";
+
     return (
-        <div className="view-stack">
+        <div className="view-stack team-view">
             <Toolbar
                 title={text.team.title}
                 subtitle={text.team.subtitle}
@@ -3188,13 +3673,27 @@ function TeamView({
                 text={text}
                 onSelectProject={onSelectProject}
                 action={
-                    <button className="primary-button" onClick={onAddMember} disabled={!canEditMembers}>
-                        <UserPlus size={16} />
-                        {text.actions.addMember}
-                    </button>
+                    <div className="toolbar-button-row">
+                        <button className="primary-button" onClick={onAddMember} disabled={!canEditMembers}>
+                            <UserPlus size={16} />
+                            {text.actions.addMember}
+                        </button>
+                        {selectedProject && currentRole ? (
+                            <button
+                                className="secondary-button"
+                                type="button"
+                                onClick={onLeaveProject}
+                                disabled={!canLeaveProject}
+                                title={leaveProjectTitle}
+                            >
+                                <LogOut size={16} />
+                                {"Выйти"}
+                            </button>
+                        ) : null}
+                    </div>
                 }
             />
-            <section className="stat-grid three">
+            <section className="stat-grid three team-stat-grid">
                 <StatCard
                     icon={Users}
                     label={text.team.totalMembers}
@@ -3296,8 +3795,8 @@ function ProfileView({
         <div className="view-stack profile-view">
             <section className="toolbar profile-toolbar">
                 <div>
-                    <p className="eyebrow">{text.nav.profile}</p>
-                    <h2>{text.profile.title}</h2>
+                    <p className="eyebrow">Аккаунт</p>
+                    <h2>Мой профиль</h2>
                     <p>{text.profile.subtitle}</p>
                 </div>
                 <button className="primary-button" onClick={onEditProfile}>
@@ -3377,7 +3876,6 @@ function ProfileField({
 function Toolbar({
                      text,
                      title,
-                     subtitle,
                      selectValue,
                      projects,
                      onSelectProject,
@@ -3398,7 +3896,6 @@ function Toolbar({
             <div>
                 <p className="eyebrow">{text.common.taskboard}</p>
                 <h2>{title}</h2>
-                <p>{subtitle}</p>
             </div>
             <div className="toolbar-actions">
                 <div className="toolbar-select-stack">
@@ -3462,11 +3959,10 @@ function StatCard({
     );
 }
 
-function SectionHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+function SectionHeader({ title }: { title: string; subtitle?: string }) {
     return (
         <div className="section-header">
             <h3>{title}</h3>
-            {subtitle && <p>{subtitle}</p>}
         </div>
     );
 }
@@ -3519,6 +4015,24 @@ function EmptyState({ title }: { title: string }) {
         <div className="empty-state">
             <Clock3 size={22} />
             <span>{title}</span>
+        </div>
+    );
+}
+
+function SoftReloadState({
+                             title,
+                             subtitle
+                         }: {
+    title: string;
+    subtitle: string;
+}) {
+    return (
+        <div className="soft-reload-state">
+            <Loader2 className="spin" size={22} />
+            <div>
+                <strong>{title}</strong>
+                <span>{subtitle}</span>
+            </div>
         </div>
     );
 }

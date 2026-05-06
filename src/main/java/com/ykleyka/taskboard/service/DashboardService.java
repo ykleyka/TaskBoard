@@ -5,7 +5,6 @@ import com.ykleyka.taskboard.dto.ProjectResponse;
 import com.ykleyka.taskboard.dto.TaskResponse;
 import com.ykleyka.taskboard.mapper.ProjectMapper;
 import com.ykleyka.taskboard.mapper.TaskMapper;
-import com.ykleyka.taskboard.model.Task;
 import com.ykleyka.taskboard.model.enums.Status;
 import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.ProjectRepository;
@@ -14,7 +13,6 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
-import java.util.Comparator;
 import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
@@ -38,17 +36,13 @@ public class DashboardService {
         ZoneId zone = ZoneId.systemDefault();
         Instant todayStart = LocalDate.now(zone).atStartOfDay(zone).toInstant();
         Instant tomorrowStart = todayStart.plus(Duration.ofDays(1));
-        List<Task> tasks = taskRepository.findAllVisibleToUserList(currentUserId);
-
-        long completedTasks = tasks.stream()
-                .filter(task -> task.getStatus() == Status.COMPLETED)
-                .count();
-        long overdueTasks = tasks.stream()
-                .filter(task -> isOverdue(task, now))
-                .count();
-        long dueTodayTasks = tasks.stream()
-                .filter(task -> isDueToday(task, todayStart, tomorrowStart))
-                .count();
+        long totalTasks = taskRepository.countAssignedVisibleToUser(currentUserId);
+        long completedTasks =
+                taskRepository.countAssignedVisibleToUserAndStatus(currentUserId, Status.COMPLETED);
+        long overdueTasks = taskRepository.countOverdueAssignedVisibleToUser(
+                currentUserId, now, Status.COMPLETED);
+        long dueTodayTasks = taskRepository.countDueTodayAssignedVisibleToUser(
+                currentUserId, todayStart, tomorrowStart, Status.COMPLETED);
         List<ProjectResponse> recentProjects =
                 projectRepository.findAllVisibleToUser(
                                 currentUserId,
@@ -59,36 +53,25 @@ public class DashboardService {
                         .map(projectMapper::toResponse)
                         .getContent();
         List<TaskResponse> upcomingTasks =
-                tasks.stream()
-                        .filter(task -> task.getDueDate() != null)
-                        .filter(task -> task.getStatus() != Status.COMPLETED)
-                        .sorted(Comparator.comparing(Task::getDueDate))
-                        .limit(UPCOMING_TASKS_LIMIT)
+                taskRepository.findUpcomingAssignedVisibleToUser(
+                                currentUserId,
+                                Status.COMPLETED,
+                                PageRequest.of(
+                                        0,
+                                        UPCOMING_TASKS_LIMIT,
+                                        Sort.by(Sort.Order.asc("dueDate"), Sort.Order.asc("id"))))
                         .map(taskMapper::toResponse)
-                        .toList();
+                        .getContent();
 
         return new DashboardResponse(
                 projectRepository.countVisibleToUser(currentUserId),
-                tasks.size(),
-                tasks.size() - completedTasks,
+                totalTasks,
+                totalTasks - completedTasks,
                 completedTasks,
                 overdueTasks,
                 dueTodayTasks,
                 projectMemberRepository.countCollaboratorsVisibleToUser(currentUserId),
                 recentProjects,
                 upcomingTasks);
-    }
-
-    private boolean isOverdue(Task task, Instant now) {
-        return task.getDueDate() != null
-                && task.getDueDate().isBefore(now)
-                && task.getStatus() != Status.COMPLETED;
-    }
-
-    private boolean isDueToday(Task task, Instant todayStart, Instant tomorrowStart) {
-        return task.getDueDate() != null
-                && !task.getDueDate().isBefore(todayStart)
-                && task.getDueDate().isBefore(tomorrowStart)
-                && task.getStatus() != Status.COMPLETED;
     }
 }

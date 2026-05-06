@@ -21,6 +21,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -44,8 +45,16 @@ public class UserService {
         return userRepository.findAll(pageable).getContent();
     }
 
+    public Page<User> getUsersPage(Pageable pageable) {
+        return userRepository.findAll(pageable);
+    }
+
     public List<User> getUsers(Long currentUserId, Pageable pageable) {
         return userRepository.findAllVisibleToUser(currentUserId, pageable).getContent();
+    }
+
+    public Page<User> getUsersPage(Long currentUserId, Pageable pageable) {
+        return userRepository.findAllVisibleToUser(currentUserId, pageable);
     }
 
     public User getUserById(Long id) {

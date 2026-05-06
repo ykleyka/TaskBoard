@@ -32,6 +32,7 @@ import java.util.function.Supplier;
 import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
@@ -61,6 +62,17 @@ public class TaskService {
     private final TaskCache taskCache;
 
     public List<TaskResponse> getTasks(
+            Status status,
+            String assignee,
+            Long currentUserId,
+            Pageable pageable) {
+        String normalizedAssignee = normalizeAssigneeValue(assignee);
+        Page<Task> tasks =
+                repository.findAllVisibleToUser(currentUserId, status, normalizedAssignee, pageable);
+        return refreshOverdueFlags(toTaskResponses(tasks)).getContent();
+    }
+
+    public Page<TaskResponse> getTasksPage(
             Status status,
             String assignee,
             Long currentUserId,
@@ -101,6 +113,28 @@ public class TaskService {
                     }
                     return repository.findAll(pageable);
                 });
+    }
+
+    public Page<TaskResponse> getTasksPage(
+            Status status,
+            String assignee,
+            Pageable pageable) {
+        String normalizedAssignee = normalizeAssigneeValue(assignee);
+        if (status != null && normalizedAssignee != null) {
+            return refreshOverdueFlags(
+                    toTaskResponses(
+                            repository.findAllByStatusAndAssigneeUsernameIgnoreCase(
+                                    status, normalizedAssignee, pageable)));
+        }
+        if (status != null) {
+            return refreshOverdueFlags(toTaskResponses(repository.findAllByStatus(status, pageable)));
+        }
+        if (normalizedAssignee != null) {
+            return refreshOverdueFlags(
+                    toTaskResponses(repository.findAllByAssigneeUsernameIgnoreCase(
+                            normalizedAssignee, pageable)));
+        }
+        return refreshOverdueFlags(toTaskResponses(repository.findAll(pageable)));
     }
 
     public TaskDetailsResponse getTaskById(Long id, Long currentUserId) {
@@ -242,6 +276,17 @@ public class TaskService {
         return searchTasksByProjectIdAndTag(projectId, tagName, status, assignee, pageable);
     }
 
+    public Page<TaskResponse> searchTasksByProjectIdAndTagPage(
+            Long projectId,
+            String tagName,
+            Status status,
+            String assignee,
+            Pageable pageable,
+            Long currentUserId) {
+        requireProjectMember(projectId, currentUserId);
+        return searchTasksByProjectIdAndTagPage(projectId, tagName, status, assignee, pageable);
+    }
+
     public List<TaskResponse> searchTasksByProjectIdAndTag(
             Long projectId,
             String tagName,
@@ -271,6 +316,24 @@ public class TaskService {
                                 searchPageable));
     }
 
+    public Page<TaskResponse> searchTasksByProjectIdAndTagPage(
+            Long projectId,
+            String tagName,
+            Status status,
+            String assignee,
+            Pageable pageable) {
+        String normalizedTagName = normalizeTagName(tagName);
+        String assigneePattern = normalizeAssigneePattern(assignee);
+        Pageable searchPageable = withSort(pageable, SEARCH_TASKS_SORT);
+        return repository.searchByProjectIdAndTag(
+                projectId,
+                normalizedTagName,
+                status,
+                assigneePattern,
+                searchPageable)
+                .map(mapper::toResponse);
+    }
+
     public List<TaskResponse> searchOverdueTasksByProjectIdAndTagNative(
             Long projectId,
             String tagName,
@@ -281,6 +344,24 @@ public class TaskService {
             Long currentUserId) {
         requireProjectMember(projectId, currentUserId);
         return searchOverdueTasksByProjectIdAndTagNative(
+                projectId,
+                tagName,
+                status,
+                assignee,
+                dueBefore,
+                pageable);
+    }
+
+    public Page<TaskResponse> searchOverdueTasksByProjectIdAndTagNativePage(
+            Long projectId,
+            String tagName,
+            Status status,
+            String assignee,
+            Instant dueBefore,
+            Pageable pageable,
+            Long currentUserId) {
+        requireProjectMember(projectId, currentUserId);
+        return searchOverdueTasksByProjectIdAndTagNativePage(
                 projectId,
                 tagName,
                 status,
@@ -311,7 +392,7 @@ public class TaskService {
                                 effectiveDueBefore,
                                 nativePageable);
         if (dueBefore == null) {
-            return toTaskResponses(loader.get());
+            return refreshOverdueFlags(toTaskResponses(loader.get())).getContent();
         }
         TaskQueryKey key =
                 TaskQueryKey.from(
@@ -323,6 +404,29 @@ public class TaskService {
                         effectiveDueBefore,
                         nativePageable);
         return getCachedTasks(key, loader);
+    }
+
+    public Page<TaskResponse> searchOverdueTasksByProjectIdAndTagNativePage(
+            Long projectId,
+            String tagName,
+            Status status,
+            String assignee,
+            Instant dueBefore,
+            Pageable pageable) {
+        String normalizedTagName = normalizeTagName(tagName);
+        String statusValue = normalizeStatusValue(status);
+        String assigneePattern = normalizeAssigneePattern(assignee);
+        Pageable nativePageable = withSort(pageable, OVERDUE_TASKS_SORT);
+        Instant effectiveDueBefore = dueBefore == null ? Instant.now() : dueBefore;
+        return refreshOverdueFlags(
+                toTaskResponses(
+                        repository.searchOverdueByProjectIdAndTagNative(
+                                projectId,
+                                normalizedTagName,
+                                statusValue,
+                                assigneePattern,
+                                effectiveDueBefore,
+                                nativePageable)));
     }
 
     private TaskResponse patchTaskInternal(
@@ -356,15 +460,15 @@ public class TaskService {
                     key.getPage(),
                     key.getSize(),
                     key.getSort());
-            return refreshOverdueFlags(cached);
+            return refreshOverdueFlags(new PageImpl<>(cached)).getContent();
         }
-        List<TaskResponse> content = toTaskResponses(loader.get());
+        List<TaskResponse> content = toTaskResponses(loader.get()).getContent();
         taskCache.putQuery(key, content);
-        return refreshOverdueFlags(content);
+        return refreshOverdueFlags(new PageImpl<>(content)).getContent();
     }
 
-    private List<TaskResponse> toTaskResponses(Page<Task> page) {
-        return page.map(mapper::toResponse).getContent();
+    private Page<TaskResponse> toTaskResponses(Page<Task> page) {
+        return page.map(mapper::toResponse);
     }
 
     private TaskResponse saveNewTask(
@@ -396,11 +500,9 @@ public class TaskService {
         taskCache.invalidateQueries();
     }
 
-    private List<TaskResponse> refreshOverdueFlags(List<TaskResponse> responses) {
+    private Page<TaskResponse> refreshOverdueFlags(Page<TaskResponse> responses) {
         Instant now = Instant.now();
-        return responses.stream()
-                .map(response -> refreshOverdueFlag(response, now))
-                .toList();
+        return responses.map(response -> refreshOverdueFlag(response, now));
     }
 
     private TaskResponse refreshOverdueFlag(TaskResponse response, Instant now) {

@@ -1,4 +1,5 @@
 import type {
+  ApiPage,
   ApiErrorPayload,
   AsyncTaskStatusResponse,
   AsyncTaskSubmissionResponse,
@@ -38,6 +39,11 @@ export class ApiError extends Error {
 }
 
 type JsonBody = Record<string, unknown> | Array<Record<string, unknown>>;
+type PageParams = {
+  page?: number;
+  size?: number;
+  sort?: string;
+};
 
 async function sendRequest(
   path: string,
@@ -85,6 +91,17 @@ function cleanBody<T extends Record<string, unknown>>(body: T): T {
   ) as T;
 }
 
+function pageQuery({ page = 0, size = 20, sort }: PageParams = {}) {
+  const params = new URLSearchParams({
+    page: String(page),
+    size: String(size)
+  });
+  if (sort) {
+    params.set("sort", sort);
+  }
+  return params.toString();
+}
+
 export const api = {
   login: (login: string, password: string) =>
     request<AuthResponse>("/api/auth/login", {
@@ -123,7 +140,11 @@ export const api = {
 
   dashboard: () => request<DashboardResponse>("/api/dashboard"),
 
-  projects: () => request<ProjectResponse[]>("/api/projects?size=100&sort=updatedAt,desc"),
+  projectsPage: (params: PageParams = {}) =>
+    request<ApiPage<ProjectResponse>>(`/api/projects?${pageQuery(params)}`),
+
+  projects: async () =>
+    (await api.projectsPage({ size: 100, sort: "updatedAt,desc" })).content,
 
   project: (id: number) => request<ProjectDetailsResponse>(`/api/projects/${id}`),
 
@@ -142,7 +163,11 @@ export const api = {
   deleteProject: (id: number) =>
     request<ProjectResponse>(`/api/projects/${id}`, { method: "DELETE" }),
 
-  users: () => request<UserResponse[]>("/api/users?size=200&sort=username,asc"),
+  usersPage: (params: PageParams = {}) =>
+    request<ApiPage<UserResponse>>(`/api/users?${pageQuery(params)}`),
+
+  users: async () =>
+    (await api.usersPage({ size: 200, sort: "username,asc" })).content,
 
   addMember: (projectId: number, userId: number, role: ProjectRole) =>
     request<ProjectUserSummaryResponse>(`/api/projects/${projectId}/members`, {
@@ -161,7 +186,11 @@ export const api = {
       method: "DELETE"
     }),
 
-  tasks: () => request<TaskResponse[]>("/api/tasks?size=200&sort=id,asc"),
+  tasksPage: (params: PageParams = {}) =>
+    request<ApiPage<TaskResponse>>(`/api/tasks?${pageQuery(params)}`),
+
+  tasks: async () =>
+    (await api.tasksPage({ size: 200, sort: "id,asc" })).content,
 
   task: (id: number) => request<TaskDetailsResponse>(`/api/tasks/${id}`),
 
@@ -215,7 +244,11 @@ export const api = {
 
   deleteTask: (id: number) => request<TaskResponse>(`/api/tasks/${id}`, { method: "DELETE" }),
 
-  tags: () => request<TagResponse[]>("/api/tags?size=100&sort=name,asc"),
+  tagsPage: (params: PageParams = {}) =>
+    request<ApiPage<TagResponse>>(`/api/tags?${pageQuery(params)}`),
+
+  tags: async () =>
+    (await api.tagsPage({ size: 100, sort: "name,asc" })).content,
 
   createTag: (name: string) =>
     request<TagResponse>("/api/tags", {
@@ -230,7 +263,7 @@ export const api = {
     request<TagResponse>(`/api/tasks/${taskId}/tags/${tagId}`, { method: "DELETE" }),
 
   comments: (taskId: number, page = 0, size = 5) =>
-    request<CommentResponse[]>(
+    request<ApiPage<CommentResponse>>(
             `/api/tasks/${taskId}/comments?page=${page}&size=${size}&sort=createdAt,desc`
     ),
 

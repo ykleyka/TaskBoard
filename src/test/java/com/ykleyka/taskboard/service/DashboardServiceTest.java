@@ -60,8 +60,6 @@ class DashboardServiceTest {
         Task overdue = task(1L, "overdue", Status.TODO, now.minus(Duration.ofDays(1)));
         Task dueToday = task(2L, "today", Status.IN_PROGRESS, todayDue);
         Task future = task(3L, "future", Status.TODO, now.plus(Duration.ofDays(3)));
-        Task completed = task(4L, "done", Status.COMPLETED, now.minus(Duration.ofDays(2)));
-        Task withoutDueDate = task(5L, "without due", Status.TODO, null);
         Project project = project(10L, "Recent project");
         ProjectResponse projectResponse =
                 new ProjectResponse(10L, "Recent project", "description", now, now);
@@ -69,8 +67,21 @@ class DashboardServiceTest {
         TaskResponse dueTodayResponse = taskResponse(2L, "today", dueToday.getDueDate(), false);
         TaskResponse futureResponse = taskResponse(3L, "future", future.getDueDate(), false);
 
-        when(taskRepository.findAllVisibleToUserList(currentUserId))
-                .thenReturn(List.of(future, completed, withoutDueDate, overdue, dueToday));
+        when(taskRepository.countAssignedVisibleToUser(currentUserId)).thenReturn(5L);
+        when(taskRepository.countAssignedVisibleToUserAndStatus(currentUserId, Status.COMPLETED))
+                .thenReturn(1L);
+        when(taskRepository.countOverdueAssignedVisibleToUser(
+                        eq(currentUserId), any(Instant.class), eq(Status.COMPLETED)))
+                .thenReturn(1L);
+        when(taskRepository.countDueTodayAssignedVisibleToUser(
+                        eq(currentUserId),
+                        any(Instant.class),
+                        any(Instant.class),
+                        eq(Status.COMPLETED)))
+                .thenReturn(1L);
+        when(taskRepository.findUpcomingAssignedVisibleToUser(
+                        eq(currentUserId), eq(Status.COMPLETED), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(List.of(overdue, dueToday, future)));
         when(projectRepository.findAllVisibleToUser(eq(currentUserId), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of(project)));
         when(projectMapper.toResponse(project)).thenReturn(projectResponse);
@@ -108,7 +119,21 @@ class DashboardServiceTest {
                 task(6L, "sixth", Status.TODO, base.plus(Duration.ofHours(6))),
                 task(7L, "seventh", Status.TODO, base.plus(Duration.ofHours(7))));
 
-        when(taskRepository.findAllVisibleToUserList(currentUserId)).thenReturn(tasks);
+        when(taskRepository.countAssignedVisibleToUser(currentUserId)).thenReturn(7L);
+        when(taskRepository.countAssignedVisibleToUserAndStatus(currentUserId, Status.COMPLETED))
+                .thenReturn(0L);
+        when(taskRepository.countOverdueAssignedVisibleToUser(
+                        eq(currentUserId), any(Instant.class), eq(Status.COMPLETED)))
+                .thenReturn(0L);
+        when(taskRepository.countDueTodayAssignedVisibleToUser(
+                        eq(currentUserId),
+                        any(Instant.class),
+                        any(Instant.class),
+                        eq(Status.COMPLETED)))
+                .thenReturn(0L);
+        when(taskRepository.findUpcomingAssignedVisibleToUser(
+                        eq(currentUserId), eq(Status.COMPLETED), any(Pageable.class)))
+                .thenReturn(new PageImpl<>(tasks.subList(0, 6)));
         when(projectRepository.findAllVisibleToUser(eq(currentUserId), any(Pageable.class)))
                 .thenReturn(new PageImpl<>(List.of()));
         when(projectRepository.countVisibleToUser(currentUserId)).thenReturn(0L);

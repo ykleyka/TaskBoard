@@ -43,6 +43,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(
                                 "/error",
+                                "/",
+                                "/index.html",
+                                "/assets/**",
+                                "/favicon.ico",
+                                "/actuator/health",
                                 "/api/auth/register",
                                 "/api/auth/login",
                                 "/swagger-ui.html",

@@ -7,9 +7,9 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Positive;
-import java.util.List;
 import lombok.RequiredArgsConstructor;
 import org.springdoc.core.annotations.ParameterObject;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.web.PageableDefault;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -32,9 +32,9 @@ public class TagController {
 
     @Operation(summary = "List tags", description = "Returns a paginated list of tags.")
     @GetMapping("/tags")
-    public List<TagResponse> getTags(
+    public Page<TagResponse> getTags(
             @ParameterObject @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
-        return service.getTags(pageable);
+        return service.getTagsPage(pageable);
     }
 
     @Operation(summary = "Create tag", description = "Creates a new tag.")
