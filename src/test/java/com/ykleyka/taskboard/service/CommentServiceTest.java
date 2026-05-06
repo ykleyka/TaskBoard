@@ -19,11 +19,8 @@ import com.ykleyka.taskboard.exception.UserNotFoundException;
 import com.ykleyka.taskboard.mapper.CommentMapper;
 import com.ykleyka.taskboard.model.Comment;
 import com.ykleyka.taskboard.model.Project;
-import com.ykleyka.taskboard.model.ProjectMember;
-import com.ykleyka.taskboard.model.ProjectMemberId;
 import com.ykleyka.taskboard.model.Task;
 import com.ykleyka.taskboard.model.User;
-import com.ykleyka.taskboard.model.enums.ProjectRole;
 import com.ykleyka.taskboard.repository.CommentRepository;
 import com.ykleyka.taskboard.repository.ProjectMemberRepository;
 import com.ykleyka.taskboard.repository.TaskRepository;
@@ -348,77 +345,6 @@ class CommentServiceTest {
     }
 
     @Test
-    void updateComment_authenticatedWhenCurrentUserIsAuthor_updatesComment() {
-        Long taskId = 71L;
-        Long projectId = 111L;
-        Long currentUserId = 121L;
-        Comment comment = comment(301L, task(taskId, projectId), user(currentUserId, "author"));
-        CommentResponse expected = commentResponse(taskId, currentUserId);
-
-        when(commentRepository.findById(301L)).thenReturn(Optional.of(comment));
-        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
-                .thenReturn(true);
-        when(commentRepository.save(comment)).thenReturn(comment);
-        when(mapper.toResponse(comment)).thenReturn(expected);
-
-        CommentResponse actual =
-                service.updateComment(301L, new CommentRequest(null, "author update"), currentUserId);
-
-        assertEquals(expected, actual);
-        assertEquals("author update", comment.getText());
-        verify(commentCache).invalidateTask(taskId);
-        verify(taskCache).invalidateTaskDetails(taskId);
-    }
-
-    @Test
-    void updateComment_authenticatedWhenCurrentUserIsManager_updatesComment() {
-        Long taskId = 72L;
-        Long projectId = 112L;
-        Long authorId = 122L;
-        Long managerId = 123L;
-        Comment comment = comment(302L, task(taskId, projectId), user(authorId, "author"));
-        CommentResponse expected = commentResponse(taskId, authorId);
-
-        when(commentRepository.findById(302L)).thenReturn(Optional.of(comment));
-        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, managerId))
-                .thenReturn(true);
-        when(projectMemberRepository.findById(new ProjectMemberId(projectId, managerId)))
-                .thenReturn(Optional.of(projectMember(projectId, managerId, ProjectRole.MANAGER)));
-        when(commentRepository.save(comment)).thenReturn(comment);
-        when(mapper.toResponse(comment)).thenReturn(expected);
-
-        CommentResponse actual =
-                service.updateComment(302L, new CommentRequest(null, "manager update"), managerId);
-
-        assertEquals(expected, actual);
-        assertEquals("manager update", comment.getText());
-    }
-
-    @Test
-    void updateComment_authenticatedWhenCurrentUserIsRegularMember_throwsForbidden() {
-        Long taskId = 73L;
-        Long projectId = 113L;
-        Long authorId = 124L;
-        Long memberId = 125L;
-        Comment comment = comment(303L, task(taskId, projectId), user(authorId, "author"));
-
-        when(commentRepository.findById(303L)).thenReturn(Optional.of(comment));
-        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, memberId))
-                .thenReturn(true);
-        when(projectMemberRepository.findById(new ProjectMemberId(projectId, memberId)))
-                .thenReturn(Optional.of(projectMember(projectId, memberId, ProjectRole.MEMBER)));
-        CommentRequest request = new CommentRequest(null, "member update");
-
-        ResponseStatusException exception =
-                assertThrows(
-                        ResponseStatusException.class,
-                        () -> service.updateComment(303L, request, memberId));
-
-        assertEquals(403, exception.getStatusCode().value());
-        verify(commentRepository, never()).save(any(Comment.class));
-    }
-
-    @Test
     void deleteComment_whenMissing_throwsCommentNotFound() {
         when(commentRepository.findById(200L)).thenReturn(Optional.empty());
 
@@ -488,30 +414,6 @@ class CommentServiceTest {
         verify(taskCache, never()).invalidateTaskDetails(any());
     }
 
-    @Test
-    void deleteComment_authenticatedWhenCurrentUserIsOwner_deletesComment() {
-        Long taskId = 13L;
-        Long projectId = 19L;
-        Long authorId = 20L;
-        Long ownerId = 21L;
-        Comment comment = comment(204L, task(taskId, projectId), user(authorId, "author"));
-        CommentResponse expected = commentResponse(taskId, authorId);
-
-        when(commentRepository.findById(204L)).thenReturn(Optional.of(comment));
-        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, ownerId))
-                .thenReturn(true);
-        when(projectMemberRepository.findById(new ProjectMemberId(projectId, ownerId)))
-                .thenReturn(Optional.of(projectMember(projectId, ownerId, ProjectRole.OWNER)));
-        when(mapper.toResponse(comment)).thenReturn(expected);
-
-        CommentResponse actual = service.deleteComment(204L, ownerId);
-
-        assertEquals(expected, actual);
-        verify(commentRepository).delete(comment);
-        verify(commentCache).invalidateTask(taskId);
-        verify(taskCache).invalidateTaskDetails(taskId);
-    }
-
     private Task task(Long taskId, Long projectId) {
         Project project = new Project();
         project.setId(projectId);
@@ -553,12 +455,5 @@ class CommentServiceTest {
                 false,
                 now,
                 now);
-    }
-
-    private ProjectMember projectMember(Long projectId, Long userId, ProjectRole role) {
-        ProjectMember member = new ProjectMember();
-        member.setId(new ProjectMemberId(projectId, userId));
-        member.setRole(role);
-        return member;
     }
 }

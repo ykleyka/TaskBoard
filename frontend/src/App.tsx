@@ -55,6 +55,8 @@ const SELECTED_PROJECT_SNAPSHOT_KEY = "taskboard.selectedProjectSnapshot";
 const SELECTED_PROJECT_DETAILS_SNAPSHOT_KEY = "taskboard.selectedProjectDetailsSnapshot";
 const COMMENTS_PAGE_SIZE = 5;
 const DASHBOARD_PROJECTS_PAGE_SIZE = 6;
+const DIRECTORY_REFRESH_INTERVAL_MS = 20_000;
+const CLIENT_TOAST_DURATION_MS = 7_000;
 
 const STATUSES: TaskStatus[] = ["TODO", "IN_PROGRESS", "COMPLETED"];
 const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
@@ -76,6 +78,12 @@ type TaskEditTag = {
     id: number;
     name: string;
     isNew?: boolean;
+};
+
+type ClientToast = {
+    id: string;
+    title: string;
+    message: string;
 };
 
 const PERSISTABLE_VIEWS: View[] = ["dashboard", "board", "reports", "team", "profile"];
@@ -527,6 +535,8 @@ export default function App() {
     const projectLoadRequestId = useRef(0);
     const reportLoadRequestId = useRef(0);
     const lastAutoReportProjectId = useRef<number | null>(null);
+    const knownProjectIds = useRef<Set<number>>(new Set());
+    const clientToastTimers = useRef<Record<string, number>>({});
     const [notice, setNotice] = useState<string | null>(null);
     const [dashboard, setDashboard] = useState<DashboardResponse | null>(null);
     const [projects, setProjects] = useState<ProjectResponse[]>(() => {
@@ -594,11 +604,21 @@ export default function App() {
     const [loadingMoreComments, setLoadingMoreComments] = useState(false);
     const [tagSelect, setTagSelect] = useState("");
     const [newTagName, setNewTagName] = useState("");
+    const [clientToasts, setClientToasts] = useState<ClientToast[]>([]);
 
     const text = TEXT;
     const statusLabels = STATUS_LABELS;
     const priorityLabels = PRIORITY_LABELS;
     const roleLabels = ROLE_LABELS;
+
+    useEffect(() => {
+        return () => {
+            Object.values(clientToastTimers.current).forEach((timerId) => {
+                window.clearTimeout(timerId);
+            });
+            clientToastTimers.current = {};
+        };
+    }, []);
 
 
     useEffect(() => {
@@ -652,6 +672,18 @@ export default function App() {
         }
         void bootstrap();
     }, [accessToken]);
+
+    useEffect(() => {
+        if (!accessToken || !currentUser) {
+            return;
+        }
+
+        const timer = window.setInterval(() => {
+            void refreshDirectory();
+        }, DIRECTORY_REFRESH_INTERVAL_MS);
+
+        return () => window.clearInterval(timer);
+    }, [accessToken, currentUser, selectedProjectId]);
 
     useEffect(() => {
         if (!pendingReport || pendingReport.status === "COMPLETED" || pendingReport.status === "FAILED") {
@@ -708,6 +740,67 @@ export default function App() {
     );
     const canExtendActiveTaskDeadline = canEditActiveTask;
 
+    function dismissClientToast(toastId: string) {
+        const timerId = clientToastTimers.current[toastId];
+        if (timerId !== undefined) {
+            window.clearTimeout(timerId);
+            delete clientToastTimers.current[toastId];
+        }
+
+        setClientToasts((currentToasts) => currentToasts.filter((toast) => toast.id !== toastId));
+    }
+
+    function showClientToast(title: string, message: string) {
+        const toastId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+        setClientToasts((currentToasts) => [...currentToasts, { id: toastId, title, message }].slice(-3));
+
+        clientToastTimers.current[toastId] = window.setTimeout(() => {
+            dismissClientToast(toastId);
+        }, CLIENT_TOAST_DURATION_MS);
+    }
+
+    async function refreshDirectory({ notifyAboutNewProjects = true } = {}) {
+        if (!accessToken || !currentUser) {
+            return;
+        }
+
+        try {
+            const [nextProjects, nextUsers] = await Promise.all([
+                api.projects(),
+                api.users()
+            ]);
+
+            const previousProjectIds = knownProjectIds.current;
+            const newProjects =
+                notifyAboutNewProjects && previousProjectIds.size > 0
+                    ? nextProjects.filter((project) => !previousProjectIds.has(project.id))
+                    : [];
+
+            knownProjectIds.current = new Set(nextProjects.map((project) => project.id));
+            setProjects(nextProjects);
+            setUsers(nextUsers);
+
+            newProjects.forEach((project) => {
+                showClientToast(
+                    "Новый проект",
+                    `Вас добавили в проект «${project.name}».`
+                );
+            });
+
+            if (selectedProjectId && !nextProjects.some((project) => project.id === selectedProjectId)) {
+                const fallbackProjectId = nextProjects[0]?.id ?? null;
+                if (fallbackProjectId) {
+                    await loadProject(fallbackProjectId);
+                } else {
+                    setSelectedProjectId(null);
+                    setSelectedProject(null);
+                }
+            }
+        } catch (error) {
+            console.warn("Failed to refresh users and projects", error);
+        }
+    }
+
     async function loadProjectsPage(page = 0) {
         setLoadingProjectsPage(true);
         try {
@@ -741,6 +834,7 @@ export default function App() {
             setProjectsPage(nextProjectsPage);
             setUsers(nextUsers);
             setTags(nextTags);
+            knownProjectIds.current = new Set(nextProjects.map((project) => project.id));
 
             const candidateProjectId =
                 preferredProjectId !== undefined ? preferredProjectId : selectedProjectId;
@@ -828,6 +922,12 @@ export default function App() {
         setPendingReport(null);
         setPendingReportProjectId(null);
         reportLoadRequestId.current += 1;
+        knownProjectIds.current = new Set();
+        Object.values(clientToastTimers.current).forEach((timerId) => {
+            window.clearTimeout(timerId);
+        });
+        clientToastTimers.current = {};
+        setClientToasts([]);
     }
 
     function openCreateProjectModal() {
@@ -1724,7 +1824,10 @@ export default function App() {
                                 canManageMembers={canManageSelectedMembers}
                                 canEditMembers={canEditSelectedMembers}
                                 onSelectProject={(id) => void loadProject(id)}
-                                onAddMember={() => setModal("member")}
+                                onAddMember={() => {
+                                    void refreshDirectory({ notifyAboutNewProjects: false });
+                                    setModal("member");
+                                }}
                                 onUpdateRole={(userId, role) => void updateMemberRole(userId, role)}
                                 onRemoveMember={(userId) => void removeMember(userId)}
                                 onLeaveProject={requestLeaveProject}
@@ -2097,6 +2200,29 @@ export default function App() {
                         </button>
                     </form>
                 </Modal>
+            )}
+            {clientToasts.length > 0 && (
+                <div className="client-toast-stack" aria-live="polite" aria-atomic="false">
+                    {clientToasts.map((toast) => (
+                        <article className="client-toast" key={toast.id}>
+                            <div className="client-toast-icon">
+                                <UserPlus size={17} />
+                            </div>
+                            <div className="client-toast-body">
+                                <strong>{toast.title}</strong>
+                                <span>{toast.message}</span>
+                            </div>
+                            <button
+                                className="client-toast-close"
+                                type="button"
+                                onClick={() => dismissClientToast(toast.id)}
+                                aria-label={text.common.dismiss}
+                            >
+                                <X size={15} />
+                            </button>
+                        </article>
+                    ))}
+                </div>
             )}
         </div>
     );
