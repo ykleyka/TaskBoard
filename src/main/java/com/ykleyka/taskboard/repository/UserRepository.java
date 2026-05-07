@@ -18,6 +18,16 @@ public interface UserRepository extends JpaRepository<User, Long> {
     boolean existsByEmailIgnoreCase(String email);
 
     @Query("""
+            SELECT user
+            FROM User user
+            WHERE LOWER(user.username) LIKE LOWER(CONCAT('%', :search, '%'))
+               OR LOWER(user.email) LIKE LOWER(CONCAT('%', :search, '%'))
+            """)
+    Page<User> searchByUsernameOrEmail(
+            @Param("search") String search,
+            Pageable pageable);
+
+    @Query("""
             SELECT DISTINCT user
             FROM User user
             WHERE user.id = :currentUserId

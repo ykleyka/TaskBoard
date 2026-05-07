@@ -49,12 +49,14 @@ public class UserService {
         return userRepository.findAll(pageable);
     }
 
-    public List<User> getUsers(Long currentUserId, Pageable pageable) {
-        return userRepository.findAllVisibleToUser(currentUserId, pageable).getContent();
-    }
+    public Page<User> getUsersPage(String search, Pageable pageable) {
+        String normalizedSearch = search == null ? "" : search.trim();
 
-    public Page<User> getUsersPage(Long currentUserId, Pageable pageable) {
-        return userRepository.findAllVisibleToUser(currentUserId, pageable);
+        if (normalizedSearch.isEmpty()) {
+            return getUsersPage(pageable);
+        }
+
+        return userRepository.searchByUsernameOrEmail(normalizedSearch, pageable);
     }
 
     public User getUserById(Long id) {

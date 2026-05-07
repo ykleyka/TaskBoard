@@ -28,6 +28,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -43,9 +44,9 @@ public class UserController {
     @Operation(summary = "List users", description = "Returns a paginated list of users.")
     @GetMapping
     public Page<UserResponse> getUsers(
-            @AuthenticationPrincipal AuthenticatedUser currentUser,
+            @RequestParam(required = false) String search,
             @ParameterObject @PageableDefault(page = 0, size = 20, sort = "id") Pageable pageable) {
-        return service.getUsersPage(currentUser.id(), pageable).map(mapper::toResponse);
+        return service.getUsersPage(search, pageable).map(mapper::toResponse);
     }
 
     @Operation(summary = "Get user by id", description = "Returns a single user by identifier.")

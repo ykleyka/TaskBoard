@@ -14,6 +14,7 @@ import {
     LogOut,
     MessageSquare,
     Plus,
+    Search,
     SlidersHorizontal,
     Shield,
     Sparkles,
@@ -55,6 +56,7 @@ const SELECTED_PROJECT_SNAPSHOT_KEY = "taskboard.selectedProjectSnapshot";
 const SELECTED_PROJECT_DETAILS_SNAPSHOT_KEY = "taskboard.selectedProjectDetailsSnapshot";
 const COMMENTS_PAGE_SIZE = 5;
 const DASHBOARD_PROJECTS_PAGE_SIZE = 6;
+const ADD_MEMBER_USERS_PAGE_SIZE = 8;
 const DIRECTORY_REFRESH_INTERVAL_MS = 20_000;
 const CLIENT_TOAST_DURATION_MS = 7_000;
 
@@ -62,8 +64,8 @@ const STATUSES: TaskStatus[] = ["TODO", "IN_PROGRESS", "COMPLETED"];
 const PRIORITIES: Priority[] = ["LOW", "MEDIUM", "HIGH", "URGENT"];
 const ROLES: ProjectRole[] = ["OWNER", "MANAGER", "MEMBER"];
 
-type View = "dashboard" | "board" | "reports" | "team" | "profile" | "taskDetails";
-type Modal = "project" | "task" | "member" | "profile" | "deleteProject" | null;
+type View = "dashboard" | "board" | "reports" | "team" | "addMember" | "profile" | "taskDetails";
+type Modal = "project" | "task" | "profile" | "deleteProject" | "removeMember" | null;
 type TaskDetailsMode = "view" | "edit";
 type TaskEditForm = {
     title: string;
@@ -210,6 +212,7 @@ const TEXT = {
         board: "Проекты",
         reports: "Отчеты",
         team: "Команда",
+        addMember: "Добавить участника",
         profile: "Профиль",
         settings: "Настройки",
         logout: "Выйти"
@@ -491,6 +494,8 @@ function getViewTitle(text: Text, view: View) {
             return text.nav.reports;
         case "team":
             return text.nav.team;
+        case "addMember":
+            return text.nav.addMember;
         case "profile":
             return text.nav.profile;
         case "taskDetails":
@@ -545,7 +550,9 @@ export default function App() {
     });
     const [projectsPage, setProjectsPage] = useState<ApiPage<ProjectResponse> | null>(null);
     const [loadingProjectsPage, setLoadingProjectsPage] = useState(false);
-    const [users, setUsers] = useState<UserResponse[]>([]);
+    const [memberSearch, setMemberSearch] = useState("");
+    const [memberUsersPage, setMemberUsersPage] = useState<ApiPage<UserResponse> | null>(null);
+    const [loadingMemberUsers, setLoadingMemberUsers] = useState(false);
     const [tags, setTags] = useState<TagResponse[]>([]);
     const [selectedProjectId, setSelectedProjectId] = useState<number | null>(() =>
         getInitialSelectedProjectId()
@@ -586,6 +593,8 @@ export default function App() {
         userId: "",
         role: "MEMBER" as ProjectRole
     });
+    const [memberPendingRemoval, setMemberPendingRemoval] =
+        useState<ProjectDetailsResponse["users"][number] | null>(null);
     const [profileForm, setProfileForm] = useState({
         username: "",
         email: "",
@@ -686,6 +695,18 @@ export default function App() {
     }, [accessToken, currentUser, selectedProjectId]);
 
     useEffect(() => {
+        if (!accessToken || view !== "addMember") {
+            return;
+        }
+
+        const timer = window.setTimeout(() => {
+            void loadMemberUsersPage(0, memberSearch);
+        }, 250);
+
+        return () => window.clearTimeout(timer);
+    }, [accessToken, view, memberSearch, selectedProjectId]);
+
+    useEffect(() => {
         if (!pendingReport || pendingReport.status === "COMPLETED" || pendingReport.status === "FAILED") {
             return;
         }
@@ -717,10 +738,13 @@ export default function App() {
         return selectedProject.users.find((member) => member.id === currentUser.id)?.role ?? null;
     }, [currentUser, selectedProject]);
 
+    useEffect(() => {
+        if (view === "addMember" && currentRole === "MANAGER" && memberForm.role !== "MEMBER") {
+            setMemberForm((form) => ({ ...form, role: "MEMBER" }));
+        }
+    }, [currentRole, memberForm.role, view]);
+
     const projectMembers = selectedProject?.users ?? [];
-    const availableUsers = users.filter(
-        (user) => !projectMembers.some((member) => member.id === user.id)
-    );
     const canEditSelectedProject = isEditableRole(currentRole);
     const canEditSelectedMembers = isEditableRole(currentRole);
     const canManageSelectedMembers = canManageRole(currentRole);
@@ -765,10 +789,7 @@ export default function App() {
         }
 
         try {
-            const [nextProjects, nextUsers] = await Promise.all([
-                api.projects(),
-                api.users()
-            ]);
+            const nextProjects = await api.projects();
 
             const previousProjectIds = knownProjectIds.current;
             const newProjects =
@@ -778,7 +799,6 @@ export default function App() {
 
             knownProjectIds.current = new Set(nextProjects.map((project) => project.id));
             setProjects(nextProjects);
-            setUsers(nextUsers);
 
             newProjects.forEach((project) => {
                 showClientToast(
@@ -817,22 +837,37 @@ export default function App() {
         }
     }
 
+    async function loadMemberUsersPage(page = 0, search = memberSearch) {
+        setLoadingMemberUsers(true);
+        try {
+            const nextUsersPage = await api.usersPage({
+                page,
+                size: ADD_MEMBER_USERS_PAGE_SIZE,
+                sort: "username,asc",
+                search
+            });
+            setMemberUsersPage(nextUsersPage);
+        } catch (error) {
+            setNotice(errorMessage(error));
+        } finally {
+            setLoadingMemberUsers(false);
+        }
+    }
+
     async function bootstrap(preferredProjectId?: number | null) {
         setBusy(true);
         try {
-            const [me, nextDashboard, nextProjects, nextProjectsPage, nextUsers, nextTags] = await Promise.all([
+            const [me, nextDashboard, nextProjects, nextProjectsPage, nextTags] = await Promise.all([
                 api.me(),
                 api.dashboard(),
                 api.projects(),
                 api.projectsPage({ page: 0, size: DASHBOARD_PROJECTS_PAGE_SIZE, sort: "updatedAt,desc" }),
-                api.users(),
                 api.tags()
             ]);
             setCurrentUser(me);
             setDashboard(nextDashboard);
             setProjects(nextProjects);
             setProjectsPage(nextProjectsPage);
-            setUsers(nextUsers);
             setTags(nextTags);
             knownProjectIds.current = new Set(nextProjects.map((project) => project.id));
 
@@ -1137,6 +1172,18 @@ export default function App() {
         }
     }
 
+    function openAddMemberPage() {
+        if (!selectedProjectId) {
+            setNotice(text.common.chooseProjectFirst);
+            return;
+        }
+
+        setMemberForm({ userId: "", role: "MEMBER" });
+        setMemberSearch("");
+        setMemberUsersPage(null);
+        setView("addMember");
+    }
+
     async function submitMember(event: FormEvent) {
         event.preventDefault();
         if (!selectedProjectId || !memberForm.userId) {
@@ -1145,9 +1192,9 @@ export default function App() {
         try {
             await api.addMember(selectedProjectId, Number(memberForm.userId), memberForm.role);
             setMemberForm({ userId: "", role: "MEMBER" });
-            setModal(null);
             await loadProject(selectedProjectId);
             await refreshDashboard();
+            await loadMemberUsersPage(memberUsersPage?.number ?? 0, memberSearch);
         } catch (error) {
             setNotice(errorMessage(error));
         }
@@ -1165,12 +1212,30 @@ export default function App() {
         }
     }
 
-    async function removeMember(userId: number) {
-        if (!selectedProjectId) {
+    function requestRemoveMember(userId: number) {
+        const member = selectedProject?.users.find((projectMember) => projectMember.id === userId);
+
+        if (!member) {
             return;
         }
+
+        setMemberPendingRemoval(member);
+        setModal("removeMember");
+    }
+
+    function closeRemoveMemberConfirmation() {
+        setModal(null);
+        setMemberPendingRemoval(null);
+    }
+
+    async function confirmRemoveMember() {
+        if (!selectedProjectId || !memberPendingRemoval) {
+            return;
+        }
+
         try {
-            await api.removeMember(selectedProjectId, userId);
+            await api.removeMember(selectedProjectId, memberPendingRemoval.id);
+            closeRemoveMemberConfirmation();
             await loadProject(selectedProjectId);
             await refreshDashboard();
         } catch (error) {
@@ -1709,9 +1774,6 @@ export default function App() {
                 password: profileForm.password || undefined
             });
             setCurrentUser(updated);
-            setUsers((nextUsers) =>
-                nextUsers.map((user) => (user.id === updated.id ? updated : user))
-            );
             setProfileForm((form) => ({ ...form, password: "" }));
             setModal(null);
         } catch (error) {
@@ -1823,14 +1885,39 @@ export default function App() {
                                 currentRole={currentRole}
                                 canManageMembers={canManageSelectedMembers}
                                 canEditMembers={canEditSelectedMembers}
-                                onSelectProject={(id) => void loadProject(id)}
-                                onAddMember={() => {
-                                    void refreshDirectory({ notifyAboutNewProjects: false });
-                                    setModal("member");
+                                onSelectProject={(id) => {
+                                    setMemberForm((form) => ({ ...form, userId: "" }));
+                                    setMemberUsersPage(null);
+                                    void loadProject(id);
                                 }}
+                                onAddMember={openAddMemberPage}
                                 onUpdateRole={(userId, role) => void updateMemberRole(userId, role)}
-                                onRemoveMember={(userId) => void removeMember(userId)}
+                                onRemoveMember={requestRemoveMember}
                                 onLeaveProject={requestLeaveProject}
+                            />
+                        )}
+                        {view === "addMember" && (
+                            <AddMemberView
+                                text={text}
+                                projects={projects}
+                                roleLabels={roleLabels}
+                                selectedProject={selectedProject}
+                                selectedProjectId={selectedProjectId}
+                                currentRole={currentRole}
+                                memberSearch={memberSearch}
+                                memberUsersPage={memberUsersPage}
+                                memberForm={memberForm}
+                                loadingUsers={loadingMemberUsers}
+                                onSelectProject={(id) => {
+                                    setMemberForm((form) => ({ ...form, userId: "" }));
+                                    void loadProject(id);
+                                }}
+                                onBack={() => setView("team")}
+                                onSearchChange={setMemberSearch}
+                                onChangeUsersPage={(page) => void loadMemberUsersPage(page, memberSearch)}
+                                onSelectUser={(userId) => setMemberForm((form) => ({ ...form, userId }))}
+                                onSelectRole={(role) => setMemberForm((form) => ({ ...form, role }))}
+                                onSubmit={(event) => void submitMember(event)}
                             />
                         )}
                         {view === "profile" && (
@@ -1964,6 +2051,37 @@ export default function App() {
                     </div>
                 </Modal>
             )}
+            {modal === "removeMember" && memberPendingRemoval && (
+                <Modal
+                    text={text}
+                    title={"Удалить участника"}
+                    onClose={closeRemoveMemberConfirmation}
+                >
+                    <div className="form-stack remove-member-confirmation">
+                        <p className="modal-warning-text">
+                            {`Участник "${memberPendingRemoval.username}" будет удален из проекта "${selectedProject?.name ?? ""}".`}
+                        </p>
+                        <div className="remove-member-summary">
+                            <div className="avatar small">{initials(memberPendingRemoval.username)}</div>
+                            <div>
+                                <strong>{memberPendingRemoval.username}</strong>
+                            </div>
+                            <span className={`project-role-badge role-${memberPendingRemoval.role.toLowerCase()}`}>
+                                {roleLabels[memberPendingRemoval.role]}
+                            </span>
+                        </div>
+                        <div className="modal-action-row">
+                            <button className="secondary-button" type="button" onClick={closeRemoveMemberConfirmation}>
+                                {"Отмена"}
+                            </button>
+                            <button className="danger-button" type="button" onClick={() => void confirmRemoveMember()}>
+                                <Trash2 size={16} />
+                                {"Удалить участника"}
+                            </button>
+                        </div>
+                    </div>
+                </Modal>
+            )}
             {modal === "task" && (
                 <Modal text={text} title={text.modals.createTask} onClose={() => setModal(null)}>
                     <form className="form-stack" onSubmit={(event) => void submitTask(event)}>
@@ -2088,51 +2206,6 @@ export default function App() {
                         <button className="primary-button" type="submit">
                             <Plus size={16} />
                             {text.actions.createTask}
-                        </button>
-                    </form>
-                </Modal>
-            )}
-            {modal === "member" && selectedProject && (
-                <Modal text={text} title={text.modals.addMember} onClose={() => setModal(null)}>
-                    <form className="form-stack" onSubmit={(event) => void submitMember(event)}>
-                        <label>
-                            <span>{text.forms.user}</span>
-                            <select
-                                required
-                                value={memberForm.userId}
-                                onChange={(event) =>
-                                    setMemberForm((form) => ({ ...form, userId: event.target.value }))
-                                }
-                            >
-                                <option value="">{text.forms.chooseUser}</option>
-                                {availableUsers.map((user) => (
-                                    <option key={user.id} value={user.id}>
-                                        {user.username} · {user.email}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <label>
-                            <span>{text.forms.role}</span>
-                            <select
-                                value={memberForm.role}
-                                onChange={(event) =>
-                                    setMemberForm((form) => ({
-                                        ...form,
-                                        role: event.target.value as ProjectRole
-                                    }))
-                                }
-                            >
-                                {((currentRole === "MANAGER" ? ["MEMBER"] : ROLES) as ProjectRole[]).map((role) => (
-                                    <option key={role} value={role}>
-                                        {roleLabels[role]}
-                                    </option>
-                                ))}
-                            </select>
-                        </label>
-                        <button className="primary-button" type="submit" disabled={!availableUsers.length}>
-                            <UserPlus size={16} />
-                            {text.actions.addMember}
                         </button>
                     </form>
                 </Modal>
@@ -2416,7 +2489,10 @@ function Sidebar({
             <nav>
                 {items.map((item) => {
                     const Icon = item.icon;
-                    const active = currentView === item.view || (currentView === "taskDetails" && item.view === "board");
+                    const active =
+                        currentView === item.view ||
+                        (currentView === "taskDetails" && item.view === "board") ||
+                        (currentView === "addMember" && item.view === "team");
                     return (
                         <button
                             key={item.view}
@@ -3738,6 +3814,179 @@ function TaskInfoRow({
     );
 }
 
+function AddMemberView({
+                           text,
+                           projects,
+                           roleLabels,
+                           selectedProject,
+                           selectedProjectId,
+                           currentRole,
+                           memberSearch,
+                           memberUsersPage,
+                           memberForm,
+                           loadingUsers,
+                           onSelectProject,
+                           onBack,
+                           onSearchChange,
+                           onChangeUsersPage,
+                           onSelectUser,
+                           onSelectRole,
+                           onSubmit
+                       }: {
+    text: Text;
+    projects: ProjectResponse[];
+    roleLabels: Record<ProjectRole, string>;
+    selectedProject: ProjectDetailsResponse | null;
+    selectedProjectId: number | null;
+    currentRole: ProjectRole | null;
+    memberSearch: string;
+    memberUsersPage: ApiPage<UserResponse> | null;
+    memberForm: { userId: string; role: ProjectRole };
+    loadingUsers: boolean;
+    onSelectProject: (projectId: number) => void;
+    onBack: () => void;
+    onSearchChange: (value: string) => void;
+    onChangeUsersPage: (page: number) => void;
+    onSelectUser: (userId: string) => void;
+    onSelectRole: (role: ProjectRole) => void;
+    onSubmit: (event: FormEvent) => void;
+}) {
+    const pageUsers = memberUsersPage?.content ?? [];
+    const selectedUserId = Number(memberForm.userId);
+    const activeProject = selectedProject?.id === selectedProjectId ? selectedProject : null;
+    const availableRoles = (currentRole === "MANAGER" ? ["MEMBER"] : ROLES) as ProjectRole[];
+    const currentPage = memberUsersPage?.number ?? 0;
+    const totalPages = memberUsersPage?.totalPages ?? 0;
+    const selectedUserAlreadyMember = Boolean(
+        activeProject?.users.some((member) => member.id === selectedUserId)
+    );
+    const canSubmit = Boolean(activeProject && currentRole && memberForm.userId && !selectedUserAlreadyMember);
+
+    return (
+        <div className="view-stack add-member-view">
+            <Toolbar
+                title={text.actions.addMember}
+                subtitle={text.team.subtitle}
+                selectValue={selectedProjectId ?? ""}
+                projects={projects}
+                text={text}
+                onSelectProject={onSelectProject}
+                disableProjectSelect
+                action={
+                    <button className="secondary-button" type="button" onClick={onBack}>
+                        <ChevronLeft size={16} />
+                        {"К команде"}
+                    </button>
+                }
+            />
+
+            <form className="surface-panel add-member-panel" onSubmit={onSubmit}>
+                <div className="add-member-controls">
+                    <label className="detail-control add-member-search">
+                        <span>{"Поиск"}</span>
+                        <div className="search-field">
+                            <Search size={16} />
+                            <input
+                                value={memberSearch}
+                                onChange={(event) => onSearchChange(event.target.value)}
+                                placeholder={"Email или username"}
+                            />
+                        </div>
+                    </label>
+                    <label className="detail-control">
+                        <span>{text.forms.role}</span>
+                        <select
+                            value={memberForm.role}
+                            onChange={(event) => onSelectRole(event.target.value as ProjectRole)}
+                        >
+                            {availableRoles.map((role) => (
+                                <option key={role} value={role}>
+                                    {roleLabels[role]}
+                                </option>
+                            ))}
+                        </select>
+                    </label>
+                    <button className="primary-button" type="submit" disabled={!canSubmit}>
+                        <UserPlus size={16} />
+                        {text.actions.addMember}
+                    </button>
+                </div>
+
+                <div className="add-member-results">
+                    {loadingUsers && !pageUsers.length ? (
+                        <SoftReloadState
+                            title={"Ищем пользователей"}
+                            subtitle={"Список обновляется по email и username."}
+                        />
+                    ) : pageUsers.length ? (
+                        pageUsers.map((user) => {
+                            const isMember = Boolean(
+                                activeProject?.users.some((member) => member.id === user.id)
+                            );
+                            const isSelected = memberForm.userId === String(user.id);
+
+                            return (
+                                <button
+                                    key={user.id}
+                                    className={`user-result-row ${isSelected ? "selected" : ""}`}
+                                    type="button"
+                                    disabled={isMember}
+                                    onClick={() => onSelectUser(String(user.id))}
+                                >
+                                    <div className="person-cell">
+                                        <div className="avatar small">{initials(user.username)}</div>
+                                        <div>
+                                            <strong>{user.username}</strong>
+                                            <span>{isSelected ? `${user.email} · выбран` : user.email}</span>
+                                        </div>
+                                    </div>
+                                    <span
+                                        className={
+                                            isMember
+                                                ? "status-chip status-completed"
+                                                : isSelected
+                                                    ? "status-chip user-result-selected"
+                                                    : "user-result-action"
+                                        }
+                                    >
+                                        {isMember ? "Уже в проекте" : isSelected ? "Выбран" : "Выбрать"}
+                                    </span>
+                                </button>
+                            );
+                        })
+                    ) : (
+                        <EmptyState title={"Пользователи не найдены"} />
+                    )}
+                </div>
+
+                <div className="dashboard-pagination add-member-pagination">
+                    <button
+                        className="secondary-button dashboard-page-button"
+                        type="button"
+                        onClick={() => onChangeUsersPage(Math.max(0, currentPage - 1))}
+                        disabled={(memberUsersPage?.first ?? true) || loadingUsers}
+                    >
+                        <ChevronLeft size={16} />
+                        {"Назад"}
+                    </button>
+                    <span className="dashboard-page-label">
+                        {totalPages ? `${currentPage + 1} / ${totalPages}` : "0 / 0"}
+                    </span>
+                    <button
+                        className="secondary-button dashboard-page-button"
+                        type="button"
+                        onClick={() => onChangeUsersPage(currentPage + 1)}
+                        disabled={(memberUsersPage?.last ?? true) || loadingUsers}
+                    >
+                        {"Дальше"}
+                        <ChevronRight size={16} />
+                    </button>
+                </div>
+            </form>
+        </div>
+    );
+}
+
 function TeamView({
                       text,
                       projects,
@@ -4006,7 +4255,8 @@ function Toolbar({
                      projects,
                      onSelectProject,
                      action,
-                     meta = null
+                     meta = null,
+                     disableProjectSelect = false
                  }: {
     text: Text;
     title: string;
@@ -4016,6 +4266,7 @@ function Toolbar({
     onSelectProject: (projectId: number) => void;
     action: ReactNode;
     meta?: ReactNode;
+    disableProjectSelect?: boolean;
 }) {
     return (
         <section className="toolbar">
@@ -4028,6 +4279,7 @@ function Toolbar({
                     <label className="select-shell">
                         <select
                             value={selectValue}
+                            disabled={disableProjectSelect}
                             onChange={(event) => onSelectProject(Number(event.target.value))}
                         >
                             {!projects.length && <option value="">{text.forms.chooseProject}</option>}

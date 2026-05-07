@@ -33,6 +33,7 @@ import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -100,6 +101,59 @@ class CommentServiceTest {
 
         assertEquals(List.of(mapped), actual);
         verify(commentCache).putByTaskId(any(), any());
+    }
+
+    @Test
+    void getCommentsByTaskIdPage_whenTaskMissing_throwsTaskNotFound() {
+        Long taskId = 47L;
+        Pageable pageable = PageRequest.of(0, 20);
+        when(taskRepository.existsById(taskId)).thenReturn(false);
+
+        assertThrows(TaskNotFoundException.class, () -> service.getCommentsByTaskIdPage(taskId, pageable));
+
+        verify(commentRepository, never()).findAllByTaskId(any(), any(Pageable.class));
+    }
+
+    @Test
+    void getCommentsByTaskIdPage_authenticatedWhenUserIsMember_returnsMappedPage() {
+        Long taskId = 48L;
+        Long projectId = 6L;
+        Long currentUserId = 22L;
+        Pageable pageable = PageRequest.of(0, 20);
+        Comment comment = comment(2L, task(taskId, projectId), user(8L, "author"));
+        CommentResponse mapped = commentResponse(taskId, 8L);
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task(taskId, projectId)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(true);
+        when(taskRepository.existsById(taskId)).thenReturn(true);
+        when(commentRepository.findAllByTaskId(taskId, pageable)).thenReturn(new PageImpl<>(List.of(comment)));
+        when(mapper.toResponse(comment)).thenReturn(mapped);
+
+        Page<CommentResponse> actual =
+                service.getCommentsByTaskIdPage(taskId, pageable, currentUserId);
+
+        assertEquals(List.of(mapped), actual.getContent());
+    }
+
+    @Test
+    void getCommentsByTaskIdPage_authenticatedWhenUserIsNotMember_throwsNotFound() {
+        Long taskId = 49L;
+        Long projectId = 7L;
+        Long currentUserId = 23L;
+        Pageable pageable = PageRequest.of(0, 20);
+
+        when(taskRepository.findById(taskId)).thenReturn(Optional.of(task(taskId, projectId)));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(false);
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.getCommentsByTaskIdPage(taskId, pageable, currentUserId));
+
+        assertEquals(404, exception.getStatusCode().value());
+        verify(commentRepository, never()).findAllByTaskId(any(), any(Pageable.class));
     }
 
     @Test
@@ -320,6 +374,53 @@ class CommentServiceTest {
     }
 
     @Test
+    void updateComment_authenticatedWhenCurrentUserIsAuthor_updatesComment() {
+        Long taskId = 70L;
+        Long projectId = 90L;
+        Long authorId = 30L;
+        Comment comment = comment(104L, task(taskId, projectId), user(authorId, "author"));
+        CommentResponse expected = commentResponse(taskId, authorId);
+
+        when(commentRepository.findById(104L)).thenReturn(Optional.of(comment));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, authorId))
+                .thenReturn(true);
+        when(commentRepository.save(comment)).thenReturn(comment);
+        when(mapper.toResponse(comment)).thenReturn(expected);
+
+        CommentResponse actual =
+                service.updateComment(104L, new CommentRequest(null, "author update"), authorId);
+
+        assertEquals(expected, actual);
+        assertEquals("author update", comment.getText());
+        verify(commentCache).invalidateTask(taskId);
+        verify(taskCache).invalidateTaskDetails(taskId);
+    }
+
+    @Test
+    void updateComment_authenticatedWhenCurrentUserIsNotAuthor_throwsForbidden() {
+        Long taskId = 71L;
+        Long projectId = 91L;
+        Long authorId = 31L;
+        Long currentUserId = 32L;
+        Comment comment = comment(105L, task(taskId, projectId), user(authorId, "author"));
+
+        when(commentRepository.findById(105L)).thenReturn(Optional.of(comment));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(true);
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.updateComment(
+                                105L, new CommentRequest(null, "foreign update"), currentUserId));
+
+        assertEquals(403, exception.getStatusCode().value());
+        verify(commentRepository, never()).save(any(Comment.class));
+        verify(commentCache, never()).invalidateTask(any());
+        verify(taskCache, never()).invalidateTaskDetails(any());
+    }
+
+    @Test
     void updateComment_whenTaskBecomesNullAfterSave_skipsInvalidationBranch() {
         Long taskId = 8L;
         Long projectId = 12L;
@@ -386,6 +487,50 @@ class CommentServiceTest {
         verify(commentRepository).delete(comment);
         verify(commentCache).invalidateTask(taskId);
         verify(taskCache).invalidateTaskDetails(taskId);
+    }
+
+    @Test
+    void deleteComment_authenticatedWhenCurrentUserIsAuthor_deletesComment() {
+        Long taskId = 72L;
+        Long projectId = 92L;
+        Long authorId = 33L;
+        Comment comment = comment(204L, task(taskId, projectId), user(authorId, "author"));
+        CommentResponse expected = commentResponse(taskId, authorId);
+
+        when(commentRepository.findById(204L)).thenReturn(Optional.of(comment));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, authorId))
+                .thenReturn(true);
+        when(mapper.toResponse(comment)).thenReturn(expected);
+
+        CommentResponse actual = service.deleteComment(204L, authorId);
+
+        assertEquals(expected, actual);
+        verify(commentRepository).delete(comment);
+        verify(commentCache).invalidateTask(taskId);
+        verify(taskCache).invalidateTaskDetails(taskId);
+    }
+
+    @Test
+    void deleteComment_authenticatedWhenCurrentUserIsNotAuthor_throwsForbidden() {
+        Long taskId = 73L;
+        Long projectId = 93L;
+        Long authorId = 34L;
+        Long currentUserId = 35L;
+        Comment comment = comment(205L, task(taskId, projectId), user(authorId, "author"));
+
+        when(commentRepository.findById(205L)).thenReturn(Optional.of(comment));
+        when(projectMemberRepository.existsByProjectIdAndUserId(projectId, currentUserId))
+                .thenReturn(true);
+
+        ResponseStatusException exception =
+                assertThrows(
+                        ResponseStatusException.class,
+                        () -> service.deleteComment(205L, currentUserId));
+
+        assertEquals(403, exception.getStatusCode().value());
+        verify(commentRepository, never()).delete(any(Comment.class));
+        verify(commentCache, never()).invalidateTask(any());
+        verify(taskCache, never()).invalidateTaskDetails(any());
     }
 
     @Test

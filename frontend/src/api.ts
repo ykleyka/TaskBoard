@@ -43,6 +43,7 @@ type PageParams = {
   page?: number;
   size?: number;
   sort?: string;
+  search?: string;
 };
 
 async function sendRequest(
@@ -91,13 +92,16 @@ function cleanBody<T extends Record<string, unknown>>(body: T): T {
   ) as T;
 }
 
-function pageQuery({ page = 0, size = 20, sort }: PageParams = {}) {
+function pageQuery({ page = 0, size = 20, sort, search }: PageParams = {}) {
   const params = new URLSearchParams({
     page: String(page),
     size: String(size)
   });
   if (sort) {
     params.set("sort", sort);
+  }
+  if (search?.trim()) {
+    params.set("search", search.trim());
   }
   return params.toString();
 }

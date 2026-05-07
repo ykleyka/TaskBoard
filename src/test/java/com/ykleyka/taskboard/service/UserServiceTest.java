@@ -37,6 +37,7 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.data.domain.PageImpl;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -76,19 +77,30 @@ class UserServiceTest {
     }
 
     @Test
-    void getUsers_withCurrentUser_returnsVisibleUsers() {
-        Long currentUserId = 10L;
-        User current = user(currentUserId, "current", "current@example.com");
-        User teammate = user(11L, "teammate", "teammate@example.com");
+    void getUsersPage_whenSearchBlank_returnsAllUsersPage() {
+        PageRequest pageable = PageRequest.of(0, 20);
+        User first = user(1L, "first", "f@example.com");
+        User second = user(2L, "second", "s@example.com");
+        when(userRepository.findAll(pageable)).thenReturn(new PageImpl<>(List.of(first, second)));
 
-        when(userRepository.findAllVisibleToUser(currentUserId, PageRequest.of(0, 20)))
-                .thenReturn(new PageImpl<>(List.of(current, teammate)));
+        List<User> actual = service.getUsersPage("   ", pageable).getContent();
 
-        List<User> actual = service.getUsers(currentUserId, PageRequest.of(0, 20));
+        assertEquals(List.of(first, second), actual);
+        verify(userRepository, never()).searchByUsernameOrEmail(any(), any(Pageable.class));
+    }
 
-        assertEquals(2, actual.size());
-        assertEquals("current", actual.get(0).getUsername());
-        assertEquals("teammate", actual.get(1).getUsername());
+    @Test
+    void getUsersPage_whenSearchPresent_trimsAndSearchesByUsernameOrEmail() {
+        PageRequest pageable = PageRequest.of(0, 20);
+        User found = user(3L, "kirill123", "kirill@example.com");
+        when(userRepository.searchByUsernameOrEmail("kirill", pageable))
+                .thenReturn(new PageImpl<>(List.of(found)));
+
+        List<User> actual = service.getUsersPage("  kirill  ", pageable).getContent();
+
+        assertEquals(List.of(found), actual);
+        verify(userRepository).searchByUsernameOrEmail("kirill", pageable);
+        verify(userRepository, never()).findAll(pageable);
     }
 
     @Test
