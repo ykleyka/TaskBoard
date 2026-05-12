@@ -46,8 +46,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Build Docker image
-        run: docker build -t taskboard:${{ github.sha }} .
+      - name: Build and run Docker Compose
+        run: |
+          docker compose up -d --build
+
+          for attempt in {1..30}; do
+            if curl -fsS http://localhost:8080/actuator/health | grep -q '"status":"UP"'; then
+              echo "Compose healthcheck passed."
+              exit 0
+            fi
+
+            echo "Waiting for app..."
+            sleep 10
+          done
+
+          docker compose logs
+          exit 1
+
+      - name: Stop Docker Compose
+        if: always()
+        run: docker compose down -v
 
   deploy:
     runs-on: ubuntu-latest
